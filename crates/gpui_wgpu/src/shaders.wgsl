@@ -135,6 +135,7 @@ struct Background {
     // 1u is LinearGradient
     // 2u is PatternSlash
     // 3u is Checkerboard
+    // 4u is RadialGradient
     tag: u32,
     // 0u is sRGB linear color
     // 1u is Oklab color
@@ -312,6 +313,9 @@ fn oklab_to_linear_srgb(color: vec4<f32>) -> vec4<f32> {
 
 fn over(below: vec4<f32>, above: vec4<f32>) -> vec4<f32> {
     let alpha = above.a + below.a * (1.0 - above.a);
+    if (alpha <= 0.0) {
+        return vec4<f32>(0.0);
+    }
     let color = (above.rgb * above.a + below.rgb * below.a * (1.0 - above.a)) / alpha;
     return vec4<f32>(color, alpha);
 }
@@ -405,7 +409,7 @@ fn prepare_gradient_color(tag: u32, color_space: u32,
     solid: Hsla, colors: array<LinearColorStop, 2>) -> GradientColor {
     var result = GradientColor();
 
-    if (tag == 0u || tag == 2u || tag == 3u) {
+    if (tag == 0u || tag == 2u || tag == 3u || tag == 4u) {
         result.solid = hsla_to_rgba(solid);
     } else if (tag == 1u) {
         // The hsla_to_rgba is returns a linear sRGB color
@@ -508,6 +512,35 @@ fn gradient_color(background: Background, position: vec2<f32>, bounds: Bounds,
 
             background_color = solid_color;
             background_color.a *= saturate(should_be_colored);
+        }
+        case 4u: {
+            // smooth elliptical radial aurora gradient
+            let size = max(bounds.size, vec2<f32>(1.0, 1.0));
+            let uv = (position - bounds.origin) / size;
+            let center = vec2<f32>(background.colors[0].color.h, background.colors[0].color.s);
+            let falloff = max(background.colors[0].percentage, 0.01);
+            let eff_radii = max(vec2<f32>(background.colors[0].color.l, background.colors[0].color.a) * falloff, vec2<f32>(0.001, 0.001));
+            let d = (uv - center) / eff_radii;
+            let dist_sq = dot(d, d);
+            if (dist_sq >= 1.0) {
+                background_color = vec4<f32>(0.0);
+            } else {
+                let t = 1.0 - sqrt(dist_sq);
+                let weight = t * t * (3.0 - 2.0 * t);
+
+                background_color = solid_color;
+                background_color.a *= weight;
+
+                let n1 = fract(52.9829189 * fract(dot(position, vec2<f32>(0.06711056, 0.00583715))));
+                let n2 = fract(52.9829189 * fract(dot(position + vec2<f32>(17.0, 31.0), vec2<f32>(0.06711056, 0.00583715))));
+                let tri = n1 - n2;
+                let a_dither = min(background_color.a, 3.0 / 255.0);
+                let rgb_scale = min(background_color.a * 85.0, 1.0);
+                background_color = vec4<f32>(
+                    saturate(background_color.rgb + vec3<f32>(tri * rgb_scale * (2.0 / 255.0))),
+                    saturate(background_color.a + tri * a_dither)
+                );
+            }
         }
     }
 

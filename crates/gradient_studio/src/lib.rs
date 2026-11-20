@@ -1,0 +1,71 @@
+pub mod overlay;
+pub mod palettes;
+pub mod state;
+pub mod status_bar_item;
+
+use gpui::{App, actions};
+
+pub use overlay::render_aurora_overlay;
+pub use palettes::{CURATED_PALETTES, CuratedPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS};
+pub use state::{GradientStudioState, PanelMask, PanelRegion, update_state};
+pub use status_bar_item::{GradientStudioButton, GradientStudioPopover};
+
+actions!(
+    gradient_studio,
+    [
+        /// Opens or closes the Gradient Studio popover in the status bar.
+        ToggleStudio,
+        /// Rolls a fresh random 4-color gradient palette.
+        RollRandom,
+        /// Restores the previously active gradient palette.
+        PreviousPalette,
+        /// Toggles smooth Breathing Aurora animation.
+        ToggleBreathe,
+        /// Switches between Seamless full-window wash and Per-Panel mode.
+        ToggleSeamless,
+        /// Rotates the 4 corner colors of the active gradient palette.
+        SwapCorners,
+        /// Increases the gradient overlay intensity.
+        IncreaseIntensity,
+        /// Decreases the gradient overlay intensity.
+        DecreaseIntensity,
+        /// Toggles the gradient overlay on or off.
+        ToggleOverlay,
+    ]
+);
+
+pub fn init(cx: &mut App) {
+    let state = GradientStudioState::load();
+    cx.set_global(state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn curated_palettes_count_and_default() {
+        assert_eq!(CURATED_PALETTES.len(), 30);
+        assert_eq!(CURATED_PALETTES[0].name, DEFAULT_PALETTE_NAME);
+        assert_eq!(CURATED_PALETTES[0].stops, DEFAULT_STOPS);
+    }
+
+    #[test]
+    fn intensity_and_corner_swap_behave_consistently() {
+        let mut state = GradientStudioState::default();
+        assert_eq!(state.intensity, 1.0);
+        state.adjust_intensity(0.5);
+        assert!((state.intensity - 1.5).abs() < 0.01);
+        state.adjust_intensity(10.0);
+        assert_eq!(state.intensity, 3.0);
+        state.adjust_intensity(-10.0);
+        assert_eq!(state.intensity, 0.2);
+
+        let original = state.stops;
+        state.swap_corners();
+        assert_eq!(state.stops[0], original[1]);
+        assert_eq!(state.stops[3], original[0]);
+        assert!(state.previous_palette());
+        assert_eq!(state.stops, original);
+    }
+}

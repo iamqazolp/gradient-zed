@@ -114,7 +114,9 @@ else
 fi
 # Build remote_server in separate invocation to prevent feature unification from other crates
 # from influencing dynamic libraries required by it.
-cargo --config .cargo/bundle-config.toml build ${build_flag} ${remote_server_features} --package remote_server --target $target_triple
+if [[ "${SKIP_REMOTE_SERVER:-0}" != "1" ]]; then
+    cargo --config .cargo/bundle-config.toml build ${build_flag} ${remote_server_features} --package remote_server --target $target_triple
+fi
 
 echo "Creating application bundle"
 pushd crates/zed
@@ -219,10 +221,8 @@ function sign_app_binaries() {
     echo "Downloading git binary"
     download_git "${target_triple}" "${app_path}/Contents/MacOS/git"
 
-    # Note: The app identifier for our development builds is the same as the app identifier for nightly.
-    cp crates/zed/contents/$channel/embedded.provisionprofile "${app_path}/Contents/"
-
     if [[ $can_code_sign = true ]]; then
+        cp crates/zed/contents/$channel/embedded.provisionprofile "${app_path}/Contents/"
         echo "Code signing binaries"
         # sequence of codesign commands modeled after this example: https://developer.apple.com/forums/thread/701514
         /usr/bin/codesign --deep --force --timestamp --options runtime --sign "$IDENTITY" "${app_path}/Contents/MacOS/cli" -v
@@ -269,7 +269,7 @@ function sign_app_binaries() {
     else
         dmg_target_directory="target/${target_triple}/${target_dir}"
         dmg_source_directory="${dmg_target_directory}/dmg"
-        dmg_file_path="${dmg_target_directory}/Zed-${arch_suffix}.dmg"
+        dmg_file_path="${dmg_target_directory}/GradientZed-${arch_suffix}.dmg"
         xcode_bin_dir_path="$(xcode-select -p)/usr/bin"
 
         rm -rf ${dmg_source_directory}
@@ -281,18 +281,26 @@ function sign_app_binaries() {
         ln -s /Applications ${dmg_source_directory}
 
         echo "Creating final DMG at ${dmg_file_path} using ${dmg_source_directory}"
-        hdiutil create -volname Zed -srcfolder "${dmg_source_directory}" -ov -format UDZO "${dmg_file_path}"
+        for attempt in 1 2 3; do
+            if hdiutil create -volname "Gradient Zed" -srcfolder "${dmg_source_directory}" -ov -format UDZO "${dmg_file_path}"; then
+                break
+            fi
+            echo "hdiutil create failed on attempt ${attempt}, retrying..."
+            sleep 5
+            if [ "${attempt}" -eq 3 ]; then
+                exit 1
+            fi
+        done
 
         # If someone runs this bundle script locally, a symlink will be placed in `dmg_source_directory`.
         # This symlink causes CPU issues with Zed if the Zed codebase is the project being worked on, so we simply remove it for now.
         echo "Removing symlink to /Applications from ${dmg_source_directory}"
         rm ${dmg_source_directory}/Applications
 
-        echo "Adding license agreement to DMG"
-        npm install --global dmg-license minimist
-        dmg-license script/terms/terms.json "${dmg_file_path}"
-
         if [[ $can_code_sign = true ]]; then
+            echo "Adding license agreement to DMG"
+            (npm install --global dmg-license minimist && dmg-license script/terms/terms.json "${dmg_file_path}") || echo "Skipping DMG license attachment"
+
             echo "Notarizing DMG with Apple"
             /usr/bin/codesign --deep --force --timestamp --options runtime --sign "$IDENTITY" "$(pwd)/${dmg_file_path}" -v
             echo "$APPLE_NOTARIZATION_KEY" > "$notarization_key_file"
@@ -327,10 +335,12 @@ function extract_debug_symbols() {
         cat target/dsymutil.log
         exit 1
     fi
-    if ! dsymutil --flat "target/${target_triple}/${target_dir}/remote-server" 2> target/dsymutil.log; then
-        echo "dsymutil failed"
-        cat target/dsymutil.log
-        exit 1
+    if [[ "${SKIP_REMOTE_SERVER:-0}" != "1" ]]; then
+        if ! dsymutil --flat "target/${target_triple}/${target_dir}/remote-server" 2> target/dsymutil.log; then
+            echo "dsymutil failed"
+            cat target/dsymutil.log
+            exit 1
+        fi
     fi
 }
 
@@ -369,12 +379,16 @@ if [[ "$target_dir" == "release" && "$local_install" != true ]]; then
     extract_debug_symbols
     strip -x "target/${target_triple}/${target_dir}/zed"
     strip -x "target/${target_triple}/${target_dir}/cli"
-    strip -x "target/${target_triple}/${target_dir}/remote-server"
+    if [[ "${SKIP_REMOTE_SERVER:-0}" != "1" ]]; then
+        strip -x "target/${target_triple}/${target_dir}/remote-server"
+    fi
 fi
 
 cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/zed"
 cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
 sign_app_binaries
 
-sign_binary "target/$target_triple/release/remote-server"
-gzip -f --stdout --best target/$target_triple/release/remote-server > target/zed-remote-server-macos-$arch_suffix.gz
+if [[ "${SKIP_REMOTE_SERVER:-0}" != "1" ]]; then
+    sign_binary "target/$target_triple/release/remote-server"
+    gzip -f --stdout --best target/$target_triple/release/remote-server > target/zed-remote-server-macos-$arch_suffix.gz
+fi

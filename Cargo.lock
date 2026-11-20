@@ -7719,6 +7719,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "gradient_studio"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "log",
+ "paths",
+ "rand 0.9.4",
+ "serde",
+ "serde_json",
+ "theme",
+ "ui",
+]
+
+[[package]]
 name = "grammars"
 version = "0.1.0"
 dependencies = [
@@ -21926,6 +21940,7 @@ dependencies = [
  "futures-lite 2.6.1",
  "git",
  "gpui",
+ "gradient_studio",
  "http_client",
  "itertools 0.14.0",
  "language",
@@ -22485,6 +22500,7 @@ dependencies = [
  "gpui",
  "gpui_platform",
  "gpui_tokio",
+ "gradient_studio",
  "hang_telemetry",
  "http_client",
  "image",

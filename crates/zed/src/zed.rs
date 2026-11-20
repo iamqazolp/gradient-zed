@@ -625,6 +625,66 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             }
         });
 
+        let gradient_studio_popover_handle =
+            PopoverMenuHandle::<gradient_studio::GradientStudioPopover>::default();
+        let gradient_studio_button = cx.new(|cx| {
+            gradient_studio::GradientStudioButton::new(gradient_studio_popover_handle.clone(), cx)
+        });
+        struct GradientStatusBarItem(Entity<gradient_studio::GradientStudioButton>);
+        impl gpui::Render for GradientStatusBarItem {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl gpui::IntoElement {
+                self.0.clone()
+            }
+        }
+        impl workspace::StatusItemView for GradientStatusBarItem {
+            fn set_active_pane_item(
+                &mut self,
+                _active_pane_item: Option<&dyn workspace::ItemHandle>,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) {
+            }
+
+            fn hide_setting(&self, _cx: &App) -> Option<workspace::HideStatusItem> {
+                None
+            }
+        }
+        let gradient_studio_status_item = cx.new(|_| GradientStatusBarItem(gradient_studio_button));
+        workspace
+            .register_action(move |_, _: &gradient_studio::ToggleStudio, window, cx| {
+                gradient_studio_popover_handle.toggle(window, cx);
+            })
+            .register_action(|_, _: &gradient_studio::RollRandom, _, cx| {
+                gradient_studio::update_state(cx, |state| state.roll_random());
+            })
+            .register_action(|_, _: &gradient_studio::PreviousPalette, _, cx| {
+                gradient_studio::update_state(cx, |state| {
+                    state.previous_palette();
+                });
+            })
+            .register_action(|_, _: &gradient_studio::ToggleBreathe, _, cx| {
+                gradient_studio::update_state(cx, |state| state.toggle_breathe());
+            })
+            .register_action(|_, _: &gradient_studio::ToggleSeamless, _, cx| {
+                gradient_studio::update_state(cx, |state| state.toggle_seamless());
+            })
+            .register_action(|_, _: &gradient_studio::SwapCorners, _, cx| {
+                gradient_studio::update_state(cx, |state| state.swap_corners());
+            })
+            .register_action(|_, _: &gradient_studio::IncreaseIntensity, _, cx| {
+                gradient_studio::update_state(cx, |state| state.adjust_intensity(0.15));
+            })
+            .register_action(|_, _: &gradient_studio::DecreaseIntensity, _, cx| {
+                gradient_studio::update_state(cx, |state| state.adjust_intensity(-0.15));
+            })
+            .register_action(|_, _: &gradient_studio::ToggleOverlay, _, cx| {
+                gradient_studio::update_state(cx, |state| state.toggle_enabled());
+            });
+
         let cursor_position =
             cx.new(|_| go_to_line::cursor_position::CursorPosition::new(workspace));
         let line_ending_indicator =
@@ -640,6 +700,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             status_bar.add_left_item(git_blame_status, window, cx);
             status_bar.add_left_item(merge_conflict_indicator, window, cx);
             status_bar.add_left_item(activity_indicator, window, cx);
+            status_bar.add_right_item(gradient_studio_status_item, window, cx);
             status_bar.add_right_item(edit_prediction_ui, window, cx);
             status_bar.add_right_item(active_buffer_encoding, window, cx);
             status_bar.add_right_item(active_buffer_language, window, cx);

@@ -669,6 +669,7 @@ fn main() {
         );
 
         theme_settings::init(theme::LoadThemes::All(Box::new(Assets)), cx);
+        gradient_studio::init(cx);
         eager_load_active_theme_and_icon_theme(fs.clone(), cx);
         theme_extension::init(
             extension_host_proxy,

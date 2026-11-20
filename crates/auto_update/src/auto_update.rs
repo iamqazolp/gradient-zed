@@ -704,6 +704,61 @@ impl AutoUpdater {
         };
         let http_client = client.http_client();
 
+        // Gradient Zed: pull desktop app updates from our own GitHub Releases so upstream
+        // cloud.zed.dev never overwrites Gradient Zed with vanilla Zed.
+        #[cfg(not(test))]
+        if asset == "zed" {
+            #[derive(Deserialize)]
+            struct GhRelease {
+                tag_name: String,
+                assets: Vec<GhAsset>,
+            }
+            #[derive(Deserialize)]
+            struct GhAsset {
+                name: String,
+                browser_download_url: String,
+            }
+
+            let request = http_client::Request::builder()
+                .uri("https://api.github.com/repos/iamqazolp/gradient-zed/releases/latest")
+                .header("User-Agent", "Gradient-Zed")
+                .header("Accept", "application/vnd.github+json")
+                .body(http_client::AsyncBody::empty())?;
+
+            let mut response = http_client.send(request).await?;
+            let mut body = Vec::new();
+            response.body_mut().read_to_end(&mut body).await?;
+            anyhow::ensure!(
+                response.status().is_success(),
+                "failed to fetch Gradient Zed release: {:?}",
+                String::from_utf8_lossy(&body),
+            );
+
+            let gh_release: GhRelease = serde_json::from_slice(&body)?;
+            let parsed_version = gh_release
+                .tag_name
+                .trim_start_matches("gradient-")
+                .trim_start_matches('v')
+                .to_string();
+
+            let expected_asset = match os {
+                "macos" => format!("GradientZed-{arch}.dmg"),
+                "linux" => format!("gradient-zed-linux-{arch}.tar.gz"),
+                _ => format!("GradientZed-{os}-{arch}.zip"),
+            };
+
+            let matched = gh_release
+                .assets
+                .into_iter()
+                .find(|a| a.name == expected_asset)
+                .with_context(|| format!("Gradient Zed release asset not found: {expected_asset}"))?;
+
+            return Ok(ReleaseAsset {
+                version: parsed_version,
+                url: matched.browser_download_url,
+            });
+        }
+
         let path = format!("/releases/{}/{}/asset", release_channel.dev_name(), version,);
         let url = http_client.build_zed_cloud_url_with_query(
             &path,
@@ -1204,7 +1259,7 @@ async fn install_release_macos(
         .file_name()
         .with_context(|| format!("invalid running app path {running_app_path:?}"))?;
 
-    let mount_path = temp_dir.path().join("Zed");
+    let mount_path = temp_dir.path().join("Gradient Zed");
     let mut mounted_app_path: OsString = mount_path.join(running_app_filename).into();
 
     mounted_app_path.push("/");

@@ -107,6 +107,7 @@ members = [
     "crates/gpui_web",
     "crates/gpui_wgpu",
     "crates/gpui_windows",
+    "crates/gradient_studio",
     "crates/grammars",
     "crates/hang_telemetry",
     "crates/html_to_markdown",
@@ -383,6 +384,7 @@ gpui_util = { path = "crates/gpui_util" }
 gpui_web = { path = "crates/gpui_web", default-features = false }
 gpui_wgpu = { path = "crates/gpui_wgpu" }
 gpui_windows = { path = "crates/gpui_windows", default-features = false }
+gradient_studio = { path = "crates/gradient_studio" }
 grammars = { path = "crates/grammars" }
 hang_telemetry = { path = "crates/hang_telemetry" }
 html_to_markdown = { path = "crates/html_to_markdown" }

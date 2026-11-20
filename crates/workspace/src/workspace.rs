@@ -1818,6 +1818,22 @@ impl Workspace {
                 }
             })
             .detach();
+
+            let mut last_gradient_revision = cx
+                .try_global::<gradient_studio::GradientStudioState>()
+                .map(|s| s.visual_revision())
+                .unwrap_or(0);
+            cx.observe_global::<gradient_studio::GradientStudioState>(move |_, cx| {
+                let current_rev = cx
+                    .try_global::<gradient_studio::GradientStudioState>()
+                    .map(|s| s.visual_revision())
+                    .unwrap_or(0);
+                if current_rev != last_gradient_revision {
+                    last_gradient_revision = current_rev;
+                    cx.notify();
+                }
+            })
+            .detach();
         }
 
         cx.subscribe_in(&project, window, move |this, _, event, window, cx| {
@@ -9004,16 +9020,29 @@ impl Workspace {
         // focusing it announces the region instead of falling back to the whole
         // window. We only make it focusable in that case so it never adds a
         // hitbox or intercepts mouse focus for other users.
-        let (dock_element_id, dock_label) = match position {
-            DockPosition::Left => ("left-dock", "Left dock"),
-            DockPosition::Right => ("right-dock", "Right dock"),
-            DockPosition::Bottom => ("bottom-dock", "Bottom dock"),
+        let (dock_element_id, dock_label, panel_region) = match position {
+            DockPosition::Left => (
+                "left-dock",
+                "Left dock",
+                gradient_studio::PanelRegion::LeftDock,
+            ),
+            DockPosition::Right => (
+                "right-dock",
+                "Right dock",
+                gradient_studio::PanelRegion::RightDock,
+            ),
+            DockPosition::Bottom => (
+                "bottom-dock",
+                "Bottom dock",
+                gradient_studio::PanelRegion::BottomDock,
+            ),
         };
         let dock_is_open = dock.read(cx).is_open();
         let a11y_active = window.is_a11y_active();
 
         let mut container = div()
             .id(dock_element_id)
+            .relative()
             .when(dock_is_open, |this| {
                 this.role(gpui::Role::Complementary)
                     .aria_label(dock_label)
@@ -9025,7 +9054,14 @@ impl Workspace {
             .overflow_hidden()
             .flex_none()
             .child(dock.clone())
-            .children(leader_border);
+            .children(leader_border)
+            .when(dock_is_open, |this| {
+                this.children(gradient_studio::render_aurora_overlay(
+                    Some(panel_region),
+                    window,
+                    cx,
+                ))
+            });
 
         // Apply sizing only when the dock is open. When closed the dock is still
         // included in the element tree so its focus handle remains mounted — without
@@ -9225,6 +9261,7 @@ impl Workspace {
     ) -> impl IntoElement {
         div()
             .id("editor-region")
+            .relative()
             .role(gpui::Role::Main)
             .aria_label("Editor")
             .when(window.is_a11y_active(), |this| {
@@ -9235,6 +9272,11 @@ impl Workspace {
                 self.zoomed.as_ref(),
                 self.maximized_pane.as_ref(),
                 render_cx,
+                window,
+                cx,
+            ))
+            .children(gradient_studio::render_aurora_overlay(
+                Some(gradient_studio::PanelRegion::Editor),
                 window,
                 cx,
             ))
@@ -10008,8 +10050,14 @@ impl Render for Workspace {
                                 }
                             },
                         ))
+                        .relative()
                         .w_full()
-                        .child(item),
+                        .child(item)
+                        .children(gradient_studio::render_aurora_overlay(
+                            Some(gradient_studio::PanelRegion::Bars),
+                            window,
+                            cx,
+                        )),
                 )
             })
             .on_modifiers_changed(move |_, _, cx| {
@@ -10411,10 +10459,21 @@ impl Render for Workspace {
                             .children(self.render_notifications(window, cx)),
                     )
                     .when(self.status_bar_visible(cx), |parent| {
-                        parent.child(self.status_bar.clone())
+                        parent.child(
+                            div()
+                                .relative()
+                                .w_full()
+                                .child(self.status_bar.clone())
+                                .children(gradient_studio::render_aurora_overlay(
+                                    Some(gradient_studio::PanelRegion::Bars),
+                                    window,
+                                    cx,
+                                )),
+                        )
                     })
                     .child(self.toast_layer.clone()),
             )
+            .children(gradient_studio::render_aurora_overlay(None, window, cx))
     }
 }
 

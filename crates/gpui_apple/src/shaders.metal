@@ -1144,6 +1144,9 @@ float4 distance_from_clip_rect_transformed(float2 unit_vertex, Bounds_ScaledPixe
 float4 over(float4 below, float4 above) {
   float4 result;
   float alpha = above.a + below.a * (1.0 - above.a);
+  if (alpha <= 0.0) {
+    return float4(0.0);
+  }
   result.rgb =
       (above.rgb * above.a + below.rgb * below.a * (1.0 - above.a)) / alpha;
   result.a = alpha;
@@ -1153,7 +1156,7 @@ float4 over(float4 below, float4 above) {
 GradientColor prepare_fill_color(uint tag, uint color_space, Hsla solid,
                                      Hsla color0, Hsla color1) {
   GradientColor out;
-  if (tag == 0 || tag == 2 || tag == 3) {
+  if (tag == 0 || tag == 2 || tag == 3 || tag == 4) {
     out.solid = hsla_to_rgba(solid);
   } else if (tag == 1) {
     out.color0 = hsla_to_rgba(color0);
@@ -1271,6 +1274,35 @@ float4 fill_color(Background background,
 
         color = solid_color;
         color.a *= saturate(should_be_colored);
+        break;
+    }
+    case 4: {
+        // smooth elliptical radial aurora gradient
+        float2 size = max(float2(bounds.size.width, bounds.size.height), float2(1.0));
+        float2 uv = (position - float2(bounds.origin.x, bounds.origin.y)) / size;
+        float2 center = float2(background.colors[0].color.h, background.colors[0].color.s);
+        float falloff = max(background.colors[0].percentage, 0.01);
+        float2 eff_radii = max(float2(background.colors[0].color.l, background.colors[0].color.a) * falloff, float2(0.001));
+        float2 d = (uv - center) / eff_radii;
+        float dist_sq = dot(d, d);
+        if (dist_sq >= 1.0) {
+          color = float4(0.0);
+          break;
+        }
+        float t = 1.0 - sqrt(dist_sq);
+        float weight = t * t * (3.0 - 2.0 * t);
+
+        color = solid_color;
+        color.a *= weight;
+
+        // Interleaved Gradient Noise (IGN) triangular dither tapered smoothly near alpha=0
+        float n1 = fract(52.9829189 * fract(dot(position, float2(0.06711056, 0.00583715))));
+        float n2 = fract(52.9829189 * fract(dot(position + float2(17.0, 31.0), float2(0.06711056, 0.00583715))));
+        float tri = n1 - n2;
+        float a_dither = min(color.a, 3.0 / 255.0);
+        float rgb_scale = min(color.a * 85.0, 1.0);
+        color.rgb = saturate(color.rgb + tri * rgb_scale * (2.0 / 255.0));
+        color.a   = saturate(color.a + tri * a_dither);
         break;
     }
   }

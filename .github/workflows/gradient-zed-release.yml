@@ -1,0 +1,126 @@
+name: Build & Release Gradient Zed
+
+on:
+  push:
+    branches:
+      - gradient-zed
+    tags:
+      - 'gradient-v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Publish GitHub Release with DMG artifact'
+        type: boolean
+        default: true
+
+concurrency:
+  group: gradient-zed-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: '1'
+
+permissions:
+  contents: write
+
+jobs:
+  build_macos_arm64:
+    name: Build macOS (Apple Silicon)
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout Gradient Zed
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with macOS SDK >= 26
+        run: |
+          sw_vers
+          ls -d /Applications/Xcode*.app || true
+          SDK_VER=$(xcrun --sdk macosx --show-sdk-version || echo "0")
+          if (( ${SDK_VER%%.*} < 26 )); then
+            for app in /Applications/Xcode_26*.app /Applications/Xcode*.app; do
+              if [[ -d "$app" ]]; then
+                CANDIDATE_VER=$(DEVELOPER_DIR="$app/Contents/Developer" xcrun --sdk macosx --show-sdk-version 2>/dev/null || echo "0")
+                if (( ${CANDIDATE_VER%%.*} >= 26 )); then
+                  echo "Selecting $app (SDK $CANDIDATE_VER)"
+                  sudo xcode-select -s "$app/Contents/Developer"
+                  break
+                fi
+              fi
+            done
+          fi
+          xcode-select -p
+          xcrun --sdk macosx --show-sdk-version
+          xcrun --sdk macosx --show-sdk-path
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.98.1'
+          targets: aarch64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-arm64-gradient-zed
+          save-if: ${{ github.ref == 'refs/heads/gradient-zed' || startsWith(github.ref, 'refs/tags/gradient-v') }}
+
+      - name: Ensure Build Tools (cmake & cargo-about)
+        run: |
+          command -v cmake >/dev/null 2>&1 || brew install cmake
+
+      - name: Run Gradient Studio & GPUI Radial Tests
+        run: |
+          cargo test -p gradient_studio
+          cargo test -p gpui --lib test_background
+
+      - name: Compute Semver Release Tag
+        id: version
+        run: |
+          ZED_VER=$(grep -m1 '^version = ' crates/zed/Cargo.toml | sed -E 's/version = "(.*)"/\1/')
+          if [[ "${GITHUB_REF}" == refs/tags/gradient-v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="gradient-v${ZED_VER}"
+          fi
+          echo "zed_version=${ZED_VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Using release tag: ${TAG}"
+
+      - name: Bundle Gradient Zed (macOS Apple Silicon)
+        env:
+          CARGO_INCREMENTAL: 0
+          SKIP_REMOTE_SERVER: 1
+        run: |
+          ./script/bundle-mac aarch64-apple-darwin
+
+      - name: Upload DMG Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GradientZed-aarch64.dmg
+          path: target/aarch64-apple-darwin/release/GradientZed-aarch64.dmg
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/gradient-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Gradient Zed ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            target/aarch64-apple-darwin/release/GradientZed-aarch64.dmg
+          body: |
+            ## Gradient Zed (macOS Apple Silicon — based on Zed v${{ steps.version.outputs.zed_version }})
+
+            True 4-corner GPU-accelerated radial aurora mesh, 30 curated Gradient Studio presets, 24 FPS synced Breathe animation, Seamless & Per-Panel modes, and 12 built-in Gradient themes.
+
+            ### Install on macOS
+            1. Download `GradientZed-aarch64.dmg`, open it, and drag **Gradient Zed.app** into `/Applications` (runs cleanly side-by-side with vanilla Zed).
+            2. Because this community build is ad-hoc signed, on first launch run:
+               ```bash
+               xattr -cr "/Applications/Gradient Zed.app"
+               ```
+               (or right-click → Open in Finder).
+            3. Click **`Studio ▴`** in the bottom-right status bar or press **`Option + Shift + P`** to open Gradient Studio!

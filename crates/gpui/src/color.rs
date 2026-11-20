@@ -747,6 +747,7 @@ pub(crate) enum BackgroundTag {
     LinearGradient = 1,
     PatternSlash = 2,
     Checkerboard = 3,
+    RadialGradient = 4,
 }
 
 /// A color space for color interpolation.
@@ -804,6 +805,16 @@ impl std::fmt::Debug for Background {
                 f,
                 "Checkerboard({:?}, {})",
                 self.solid, self.gradient_angle_or_pattern_height
+            ),
+            BackgroundTag::RadialGradient => write!(
+                f,
+                "RadialGradient({:?}, center=({}, {}), radii=({}, {}), falloff={})",
+                self.solid,
+                self.colors[0].color.h,
+                self.colors[0].color.s,
+                self.colors[0].color.l,
+                self.colors[0].color.a,
+                self.colors[0].percentage,
             ),
         }
     }
@@ -875,6 +886,35 @@ pub fn linear_gradient(
     }
 }
 
+/// Creates a smooth elliptical RadialGradient background color fading from `color` at `(center_x, center_y)`
+/// to transparent at `falloff` times `(radius_x, radius_y)` in normalized element UV coordinates (`0.0..=1.0`).
+pub fn radial_gradient(
+    center_x: f32,
+    center_y: f32,
+    radius_x: f32,
+    radius_y: f32,
+    falloff: f32,
+    color: impl Into<Hsla>,
+) -> Background {
+    Background {
+        tag: BackgroundTag::RadialGradient,
+        solid: color.into(),
+        colors: [
+            LinearColorStop {
+                color: Hsla {
+                    h: center_x,
+                    s: center_y,
+                    l: radius_x,
+                    a: radius_y,
+                },
+                percentage: falloff,
+            },
+            LinearColorStop::default(),
+        ],
+        ..Default::default()
+    }
+}
+
 /// A color stop in a linear gradient.
 ///
 /// <https://developer.mozilla.org/en-US/docs/Web/CSS/gradient/linear-gradient#linear-color-stop>
@@ -929,10 +969,12 @@ impl Background {
     pub fn opacity(&self, factor: f32) -> Self {
         let mut background = *self;
         background.solid = background.solid.opacity(factor);
-        background.colors = [
-            self.colors[0].opacity(factor),
-            self.colors[1].opacity(factor),
-        ];
+        if background.tag != BackgroundTag::RadialGradient {
+            background.colors = [
+                self.colors[0].opacity(factor),
+                self.colors[1].opacity(factor),
+            ];
+        }
         background
     }
 
@@ -943,6 +985,7 @@ impl Background {
             BackgroundTag::LinearGradient => self.colors.iter().all(|c| c.color.is_transparent()),
             BackgroundTag::PatternSlash => self.solid.is_transparent(),
             BackgroundTag::Checkerboard => self.solid.is_transparent(),
+            BackgroundTag::RadialGradient => self.solid.is_transparent(),
         }
     }
 }
@@ -1040,6 +1083,24 @@ mod tests {
         assert_eq!(background.opacity(0.5).colors[0], from.opacity(0.5));
         assert_eq!(background.opacity(0.5).colors[1], to.opacity(0.5));
         assert!(!background.is_transparent());
+        assert!(background.opacity(0.0).is_transparent());
+    }
+
+    #[test]
+    fn test_background_radial_gradient() {
+        let color = hsla(0.6, 0.8, 0.5, 0.2);
+        let background = radial_gradient(0.15, 0.25, 0.75, 0.55, 0.70, color);
+        assert_eq!(background.tag, BackgroundTag::RadialGradient);
+        assert_eq!(background.solid, color);
+        assert_eq!(background.colors[0].color.h, 0.15);
+        assert_eq!(background.colors[0].color.s, 0.25);
+        assert_eq!(background.colors[0].color.l, 0.75);
+        assert_eq!(background.colors[0].color.a, 0.55);
+        assert_eq!(background.colors[0].percentage, 0.70);
+        assert!(!background.is_transparent());
+        let dimmed = background.opacity(0.5);
+        assert_eq!(dimmed.colors[0].color.a, 0.55);
+        assert!((dimmed.solid.a - 0.1).abs() < 1e-5);
         assert!(background.opacity(0.0).is_transparent());
     }
 
