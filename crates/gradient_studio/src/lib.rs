@@ -5,9 +5,12 @@ pub mod status_bar_item;
 
 use gpui::{App, actions};
 
-pub use overlay::render_aurora_overlay;
-pub use palettes::{CURATED_PALETTES, CuratedPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS};
-pub use state::{GradientStudioState, PanelMask, PanelRegion, update_state};
+pub use overlay::{render_aurora_overlay, render_studio_card_backdrop};
+pub use palettes::{
+    CURATED_PALETTES, CuratedPalette, CustomPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS,
+    PaletteCategory,
+};
+pub use state::{BreatheConfig, GradientStudioState, PanelMask, PanelRegion, update_state};
 pub use status_bar_item::{GradientStudioButton, GradientStudioPopover};
 
 actions!(
@@ -42,12 +45,21 @@ pub fn init(cx: &mut App) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::palettes::{parse_four_hex_colors, rgb_to_hex};
 
     #[test]
     fn curated_palettes_count_and_default() {
         assert_eq!(CURATED_PALETTES.len(), 30);
         assert_eq!(CURATED_PALETTES[0].name, DEFAULT_PALETTE_NAME);
         assert_eq!(CURATED_PALETTES[0].stops, DEFAULT_STOPS);
+    }
+
+    #[test]
+    fn hex_parsing_and_formatting() {
+        let parsed = parse_four_hex_colors("#EA4335 #FBBC04 #34A853 #4285F4").unwrap();
+        assert_eq!(parsed, DEFAULT_STOPS);
+        assert_eq!(rgb_to_hex(parsed[0]), "#EA4335");
+        assert!(parse_four_hex_colors("#EA4335 #FBBC04").is_none());
     }
 
     #[test]

@@ -7,8 +7,8 @@ use gpui::{
 };
 use theme::{ActiveTheme, Appearance};
 
-use crate::palettes::{FourStops, rgb_to_hsla};
-use crate::state::{GradientStudioState, PanelRegion};
+use crate::palettes::{CURATED_PALETTES, FourStops, lerp_stops, rgb_to_hsla};
+use crate::state::{BreatheConfig, GradientStudioState, PanelRegion};
 
 /// Exact 4-corner radial ellipse geometry matching VSCode Gradient Themes:
 /// `(stop_index, radius_x, radius_y, falloff, base_alpha)`
@@ -21,12 +21,13 @@ const RADIAL_LAYERS: [(usize, f32, f32, f32, f32); 4] = [
 
 /// Renders the translucent 4-color radial aurora mesh overlay as a single GPU `canvas()` element.
 ///
-/// Performance optimizations:
-/// - **1 layout node** instead of 6 nested `div()`s (cuts Taffy layout work 6x).
-/// - **Tight CPU bounding-box clipping** per radial ellipse cuts GPU fragment overdraw by ~45%
-///   with 100% pixel-identical output.
-/// - **24 FPS synced Breathe animation** via `Animation::repeat_synced().with_max_fps(24.0)`
-///   (automatically respects `cx.reduce_motion()` and pauses completely when unfocused).
+/// - `region == None` renders on the top-level `MultiWorkspace` root in Seamless mode (full window,
+///   covering left threads sidebar + titlebar + editor/agent + docks + status bar seamlessly).
+/// - `region == Some(r)` renders in Per-Panel mode using that panel's own custom palette or the
+///   global palette.
+/// - Supports all 4 Breathing Aurora modes (`Full Wave`, `Pulse`, `Shimmer`, `Auto-Morph`) at
+///   24 FPS synced with configurable `speed_pct`, auto-respecting `cx.reduce_motion()` and pausing
+///   when the window is unfocused.
 pub fn render_aurora_overlay(
     region: Option<PanelRegion>,
     window: &mut Window,
@@ -51,10 +52,12 @@ pub fn render_aurora_overlay(
     }
 
     let is_light = cx.theme().appearance() == Appearance::Light;
-    let base_scale = if is_light { 0.72 } else { 0.85 } * state.intensity;
-    let stops = state.stops;
+    let base_scale = if is_light { 0.76 } else { 0.88 } * state.intensity;
+    let stops = state.resolved_stops(region);
     let base_angle = state.base_angle;
-    let breathe_active = state.breathe && window.is_window_active();
+    let cfg = state.breathe_cfg;
+    let any_motion = cfg.full_wave || cfg.pulse || cfg.shimmer || cfg.auto_morph;
+    let breathe_active = state.breathe && any_motion && window.is_window_active();
 
     if breathe_active {
         let anim_id = match region {
@@ -65,31 +68,67 @@ pub fn render_aurora_overlay(
             Some(PanelRegion::BottomDock) => "aurora-breathe-bottom",
             Some(PanelRegion::Bars) => "aurora-breathe-bars",
         };
-        let focal_static = state.focal_points_at(None);
+        let speed_mult = (cfg.speed_pct / 100.0).clamp(0.25, 2.5);
+        let cycle_secs = (18.0 / speed_mult).clamp(5.0, 72.0);
+        let focal_static = compute_focal_points(None, cfg);
         let animated = build_aurora_canvas(stops, base_angle, base_scale, focal_static)
             .with_animation(
                 anim_id,
-                Animation::new(Duration::from_secs(18))
+                Animation::new(Duration::from_secs_f32(cycle_secs))
                     .repeat_synced()
                     .with_max_fps(24.0),
                 move |_prev, delta| {
                     let phase = delta * TAU;
-                    let focal = compute_focal_points(Some(phase));
-                    build_aurora_canvas(stops, base_angle, base_scale, focal)
+                    let focal = compute_focal_points(Some(phase), cfg);
+                    let pulse_mult = if cfg.pulse {
+                        1.0 + 0.18 * (phase * 2.0).sin()
+                    } else {
+                        1.0
+                    };
+                    let angle = if cfg.shimmer {
+                        (base_angle + 28.0 * phase.sin()).rem_euclid(360.0)
+                    } else {
+                        base_angle
+                    };
+                    let active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
+                        let count = CURATED_PALETTES.len().min(12);
+                        let pos = delta * count as f32;
+                        let idx_a = (pos.floor() as usize) % count;
+                        let idx_b = (idx_a + 1) % count;
+                        let frac = pos - pos.floor();
+                        lerp_stops(
+                            CURATED_PALETTES[idx_a].stops,
+                            CURATED_PALETTES[idx_b].stops,
+                            frac,
+                        )
+                    } else {
+                        stops
+                    };
+                    build_aurora_canvas(active_stops, angle, base_scale * pulse_mult, focal)
                 },
             );
         Some(animated.into_any_element())
     } else {
-        let focal = state.focal_points_at(None);
+        let focal = compute_focal_points(None, cfg);
         Some(build_aurora_canvas(stops, base_angle, base_scale, focal).into_any_element())
     }
 }
 
-fn compute_focal_points(phase_radians: Option<f32>) -> [(f32, f32); 4] {
+/// Renders a decorative 4-corner radial aurora backdrop inside the Gradient Studio card itself.
+pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyElement {
+    let base_scale = if is_light { 0.92 } else { 1.05 };
+    let focal = [(0.14, 0.14), (0.86, 0.22), (0.20, 0.86), (0.86, 0.86)];
+    build_aurora_canvas(stops, 135.0, base_scale, focal).into_any_element()
+}
+
+fn compute_focal_points(phase_radians: Option<f32>, cfg: BreatheConfig) -> [(f32, f32); 4] {
     let base = [(0.15, 0.15), (0.85, 0.25), (0.25, 0.85), (0.85, 0.85)];
     let Some(t) = phase_radians else {
         return base;
     };
+    if !cfg.full_wave {
+        return base;
+    }
     [
         (base[0].0 + 0.08 * t.sin(), base[0].1 + 0.06 * (t * 0.8).cos()),
         (

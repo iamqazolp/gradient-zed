@@ -359,6 +359,21 @@ impl MultiWorkspace {
                 previous_multi_workspace_enabled = multi_workspace_enabled;
             }
         });
+        let mut last_gradient_revision = cx
+            .try_global::<gradient_studio::GradientStudioState>()
+            .map(|s| s.visual_revision())
+            .unwrap_or(0);
+        let gradient_subscription =
+            cx.observe_global::<gradient_studio::GradientStudioState>(move |_, cx| {
+                let current_rev = cx
+                    .try_global::<gradient_studio::GradientStudioState>()
+                    .map(|s| s.visual_revision())
+                    .unwrap_or(0);
+                if current_rev != last_gradient_revision {
+                    last_gradient_revision = current_rev;
+                    cx.notify();
+                }
+            });
         Self::subscribe_to_workspace(&workspace, window, cx);
         let weak_self = cx.weak_entity();
         let active_workspace_id = Rc::new(Cell::new(workspace.entity_id()));
@@ -379,7 +394,11 @@ impl MultiWorkspace {
             sidebar_overlay: None,
             pending_removal_tasks: Vec::new(),
             _serialize_task: None,
-            _subscriptions: vec![release_subscription, settings_subscription],
+            _subscriptions: vec![
+                release_subscription,
+                settings_subscription,
+                gradient_subscription,
+            ],
             previous_focus_handle: None,
         }
     }
@@ -2123,6 +2142,11 @@ impl Render for MultiWorkspace {
                     .flex_shrink_0()
                     .child(sidebar_handle.to_any())
                     .child(resize_handle)
+                    .children(gradient_studio::render_aurora_overlay(
+                        Some(gradient_studio::PanelRegion::LeftDock),
+                        window,
+                        cx,
+                    ))
                     .into_any_element()
             })
         } else {
@@ -2249,6 +2273,7 @@ impl Render for MultiWorkspace {
                         .child(self.workspace().clone()),
                 )
                 .children(right_sidebar)
+                .children(gradient_studio::render_aurora_overlay(None, window, cx))
                 .child(self.workspace().read(cx).modal_layer.clone())
                 .children(self.sidebar_overlay.as_ref().map(|view| {
                     deferred(div().absolute().size_full().inset_0().occlude().child(

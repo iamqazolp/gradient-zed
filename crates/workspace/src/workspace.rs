@@ -2151,12 +2151,21 @@ impl Workspace {
                 cx.notify();
             }),
             cx.observe_window_appearance(window, |_, window, cx| {
+                // Only sync SystemAppearance when theme mode follows the OS (`System`).
+                // Otherwise Zed's own `set_window_appearance` override fires this callback
+                // and would overwrite `SystemAppearance`, causing Light/Dark theme jumps.
+                if theme_settings::ThemeSettings::get_global(cx).theme.mode()
+                    != Some(theme_settings::ThemeAppearanceMode::System)
+                {
+                    return;
+                }
                 let window_appearance = window.appearance();
-
-                *SystemAppearance::global_mut(cx) = SystemAppearance(window_appearance.into());
-
-                theme_settings::reload_theme(cx);
-                theme_settings::reload_icon_theme(cx);
+                let next_appearance = theme::Appearance::from(window_appearance);
+                if SystemAppearance::global(cx).0 != next_appearance {
+                    *SystemAppearance::global_mut(cx) = SystemAppearance(next_appearance);
+                    theme_settings::reload_theme(cx);
+                    theme_settings::reload_icon_theme(cx);
+                }
             }),
             cx.on_release({
                 let weak_handle = weak_handle.clone();
@@ -10473,7 +10482,6 @@ impl Render for Workspace {
                     })
                     .child(self.toast_layer.clone()),
             )
-            .children(gradient_studio::render_aurora_overlay(None, window, cx))
     }
 }
 

@@ -15,15 +15,25 @@ pub(crate) fn window_appearance_from_native(appearance: Option<&NSAppearance>) -
         };
         let name_ptr = Retained::as_ptr(&name).cast::<AnyObject>();
         if name_ptr == std::ptr::from_ref(NSAppearanceNameVibrantLight).cast() {
-            WindowAppearance::VibrantLight
+            return WindowAppearance::VibrantLight;
         } else if name_ptr == std::ptr::from_ref(NSAppearanceNameVibrantDark).cast() {
-            WindowAppearance::VibrantDark
+            return WindowAppearance::VibrantDark;
         } else if name_ptr == NSAppearanceNameAqua {
-            WindowAppearance::Light
+            return WindowAppearance::Light;
         } else if name_ptr == NSAppearanceNameDarkAqua {
+            return WindowAppearance::Dark;
+        }
+
+        // Fall back to string matching so macOS 26 / accessibility appearance names
+        // (e.g. NSAppearanceNameAccessibilityHighContrastDarkAqua) never misclassify as Light.
+        let name_str = name_ptr.cast_mut().to_str();
+        if name_str.contains("VibrantDark") {
+            WindowAppearance::VibrantDark
+        } else if name_str.contains("VibrantLight") {
+            WindowAppearance::VibrantLight
+        } else if name_str.contains("Dark") {
             WindowAppearance::Dark
         } else {
-            println!("unknown appearance: {:?}", name_ptr.cast_mut().to_str());
             WindowAppearance::Light
         }
     }
