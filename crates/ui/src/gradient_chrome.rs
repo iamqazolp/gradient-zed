@@ -1,0 +1,524 @@
+use std::f32::consts::TAU;
+use std::time::Instant;
+
+use gpui::{
+    AnyElement, App, Background, BorderStyle, Bounds, Corners, Edges, Global, Hsla, IntoElement,
+    Pixels, Styled, Window, canvas, linear_color_stop, linear_gradient, point, px, quad, size,
+    transparent_black,
+};
+use theme::{ActiveTheme as _, Appearance};
+
+pub type Rgb = [u8; 3];
+pub type FourStops = [Rgb; 4];
+
+const DEFAULT_STOPS: FourStops = [
+    [234, 67, 53],
+    [251, 188, 4],
+    [52, 168, 83],
+    [66, 133, 244],
+];
+
+/// Shared lightweight snapshot of Gradient Zed's live palette and synchronized Breathing Aurora
+/// clock, accessible from `ui`, `markdown`, `editor`, `project_panel`, `sidebar`, and `agent_ui`
+/// without introducing circular dependencies on `gradient_studio`.
+#[derive(Clone)]
+pub struct GradientChromeState {
+    pub enabled: bool,
+    pub stops: FourStops,
+    pub breathe: bool,
+    pub breathe_origin: Instant,
+    pub breathe_cycle_secs: f32,
+    pub breathe_pulse: bool,
+    pub breathe_shimmer: bool,
+    pub breathe_auto_morph: bool,
+    pub intensity: f32,
+    pub canvas_bg: Hsla,
+    pub is_light: bool,
+    pub morph_palettes: Vec<FourStops>,
+}
+
+impl Global for GradientChromeState {}
+
+impl Default for GradientChromeState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            stops: DEFAULT_STOPS,
+            breathe: false,
+            breathe_origin: Instant::now(),
+            breathe_cycle_secs: 18.0,
+            breathe_pulse: true,
+            breathe_shimmer: true,
+            breathe_auto_morph: false,
+            intensity: 1.0,
+            canvas_bg: gpui::rgb(0x111722).into(),
+            is_light: false,
+            morph_palettes: Vec::new(),
+        }
+    }
+}
+
+#[inline]
+pub fn rgb_to_hsla([r, g, b]: Rgb, alpha: f32) -> Hsla {
+    let mut c: Hsla = gpui::Rgba {
+        r: r as f32 / 255.0,
+        g: g as f32 / 255.0,
+        b: b as f32 / 255.0,
+        a: 1.0,
+    }
+    .into();
+    c.a = alpha.clamp(0.0, 1.0);
+    c
+}
+
+#[inline]
+fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    [
+        (a[0] as f32 + (b[0] as f32 - a[0] as f32) * t).round() as u8,
+        (a[1] as f32 + (b[1] as f32 - a[1] as f32) * t).round() as u8,
+        (a[2] as f32 + (b[2] as f32 - a[2] as f32) * t).round() as u8,
+    ]
+}
+
+#[inline]
+pub fn lerp_stops(a: FourStops, b: FourStops, t: f32) -> FourStops {
+    [
+        lerp_rgb(a[0], b[0], t),
+        lerp_rgb(a[1], b[1], t),
+        lerp_rgb(a[2], b[2], t),
+        lerp_rgb(a[3], b[3], t),
+    ]
+}
+
+/// Continuously shifts 4 rainbow stops around the cycle by `shift` in `[0.0..4.0)` so frames,
+/// borders, buttons, tabs, and selections smoothly shimmer in lockstep with Breathing Aurora.
+#[inline]
+pub fn shimmer_shift_stops(stops: FourStops, shift: f32) -> FourStops {
+    let s = shift.rem_euclid(4.0);
+    let base = s.floor() as usize;
+    let frac = s - s.floor();
+    let mut out = stops;
+    for i in 0..4 {
+        let a = stops[(i + base) % 4];
+        let b = stops[(i + base + 1) % 4];
+        out[i] = lerp_rgb(a, b, frac);
+    }
+    out
+}
+
+impl GradientChromeState {
+    pub fn live_phase_delta(&self, window_active: bool) -> Option<f32> {
+        let any_motion = self.breathe_pulse || self.breathe_shimmer || self.breathe_auto_morph;
+        if !self.breathe || !any_motion || !window_active {
+            return None;
+        }
+        let cycle = self.breathe_cycle_secs.clamp(5.0, 72.0);
+        let elapsed = self.breathe_origin.elapsed().as_secs_f32();
+        Some((elapsed / cycle).rem_euclid(1.0))
+    }
+
+    pub fn live_stops_and_pulse(
+        &self,
+        override_stops: Option<FourStops>,
+        window_active: bool,
+    ) -> (FourStops, f32) {
+        let base = override_stops.unwrap_or(self.stops);
+        let Some(delta) = self.live_phase_delta(window_active) else {
+            return (base, 1.0);
+        };
+        let phase = delta * TAU;
+
+        let mut stops = if self.breathe_auto_morph && !self.morph_palettes.is_empty() {
+            let count = self.morph_palettes.len();
+            let pos = delta * count as f32;
+            let idx_a = (pos.floor() as usize) % count;
+            let idx_b = (idx_a + 1) % count;
+            let frac = pos - pos.floor();
+            lerp_stops(self.morph_palettes[idx_a], self.morph_palettes[idx_b], frac)
+        } else {
+            base
+        };
+
+        if self.breathe_shimmer {
+            stops = shimmer_shift_stops(stops, delta * 4.0);
+        }
+
+        let pulse = if self.breathe_pulse {
+            1.0 + 0.16 * (phase * 2.0).sin()
+        } else {
+            1.0
+        };
+
+        (stops, pulse)
+    }
+}
+
+pub fn is_enabled(cx: &App) -> bool {
+    cx.try_global::<GradientChromeState>()
+        .is_some_and(|s| s.enabled)
+}
+
+pub fn canvas_background(cx: &App) -> Hsla {
+    if let Some(state) = cx.try_global::<GradientChromeState>() {
+        state.canvas_bg
+    } else {
+        let fallback: Hsla = match cx.theme().appearance() {
+            Appearance::Light => gpui::rgb(0xffffff).into(),
+            Appearance::Dark => gpui::rgb(0x111722).into(),
+        };
+        let mut c = fallback.blend(cx.theme().colors().editor_background);
+        c.a = 1.0;
+        c
+    }
+}
+
+/// Solid opaque background color for fenced code blocks inside Markdown / Agent responses,
+/// keeping code boxes crisp and solid while framed by a rounded gradient border.
+pub fn solid_code_block_background(cx: &App) -> Hsla {
+    let mut base = canvas_background(cx);
+    base.a = 1.0;
+    if cx.theme().appearance() == Appearance::Light {
+        // Subtle cool-alabaster contrast tint on pure white themes so code cards pop cleanly
+        if base.l > 0.96 {
+            base.l = (base.l - 0.025).max(0.0);
+        }
+    } else if base.l < 0.12 {
+        base.l = (base.l + 0.025).min(1.0);
+    }
+    base
+}
+
+/// Returns a live-breathing horizontal gradient `Background` for Editor text selections
+/// (matching VS Code's `--g-selection`).
+pub fn selection_background(
+    window: &Window,
+    opacity_scale: f32,
+    cx: &App,
+) -> Option<Background> {
+    let state = cx.try_global::<GradientChromeState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let base_a = if state.is_light { 0.28 } else { 0.34 };
+    let a0 = (base_a * opacity_scale * pulse).clamp(0.08, 0.52);
+    let a1 = ((base_a + 0.04) * opacity_scale * pulse).clamp(0.08, 0.56);
+    Some(linear_gradient(
+        90.0,
+        linear_color_stop(rgb_to_hsla(stops[0], a0), 0.0),
+        linear_color_stop(rgb_to_hsla(stops[3], a1), 1.0),
+    ))
+}
+
+/// Returns a harmonious palette-tinted `Hsla` for Markdown text selections.
+pub fn markdown_selection_tint(cx: &App) -> Option<Hsla> {
+    let state = cx.try_global::<GradientChromeState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let alpha = if state.is_light { 0.26 } else { 0.34 };
+    Some(rgb_to_hsla(state.stops[3], alpha))
+}
+
+/// Returns a live-breathing palette-tinted `Hsla` for Markdown text selections during layout/paint.
+pub fn markdown_selection_tint_live(window: &Window, cx: &App) -> Option<Hsla> {
+    let state = cx.try_global::<GradientChromeState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let base_a = if state.is_light { 0.26 } else { 0.34 };
+    let alpha = (base_a * pulse).clamp(0.14, 0.50);
+    Some(rgb_to_hsla(stops[3], alpha))
+}
+
+/// Paints a pixel-snapped, zero-seam 4-stop gradient rectangle with **native GPU SDF rounded
+/// corners** (`gpui::quad` + `Corners`), eliminating both rectangular corner poke-outs and
+/// overlapping 1/3 vertical seam lines.
+pub fn paint_rounded_four_stop_band(
+    bounds: Bounds<Pixels>,
+    radius: Pixels,
+    stops: FourStops,
+    alphas: [f32; 4],
+    horizontal: bool,
+    window: &mut Window,
+) {
+    let origin_x = f32::from(bounds.origin.x);
+    let origin_y = f32::from(bounds.origin.y);
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+
+    let r_f32 = f32::from(radius).max(0.0).min(width * 0.5).min(height * 0.5);
+    let r = px(r_f32);
+    let primary_extent = if horizontal { width } else { height };
+
+    // On compact pills/buttons/circles where `primary_extent < 3 * r`, use a single seamless
+    // SDF rounded quad so corners are always mathematically smooth with zero pinching.
+    if primary_extent < r_f32 * 3.0 + 3.0 {
+        let angle = if horizontal { 125.0 } else { 155.0 };
+        window.paint_quad(quad(
+            bounds,
+            Corners::all(r),
+            linear_gradient(
+                angle,
+                linear_color_stop(rgb_to_hsla(stops[0], alphas[0]), 0.0),
+                linear_color_stop(rgb_to_hsla(stops[3], alphas[3]), 1.0),
+            ),
+            Edges::default(),
+            transparent_black(),
+            BorderStyle::Solid,
+        ));
+        return;
+    }
+
+    let angle = if horizontal { 90.0 } else { 180.0 };
+    let p0 = 0.0;
+    let p1 = (primary_extent / 3.0).round();
+    let p2 = (2.0 * primary_extent / 3.0).round();
+    let p3 = primary_extent;
+    let splits = [(p0, p1), (p1, p2), (p2, p3)];
+
+    for (seg, (s0, s1)) in splits.into_iter().enumerate() {
+        let len = s1 - s0;
+        if len <= 0.0 {
+            continue;
+        }
+        let (seg_bounds, seg_corners) = if horizontal {
+            let b = Bounds {
+                origin: point(px(origin_x + s0), px(origin_y)),
+                size: size(px(len), px(height)),
+            };
+            let c = match seg {
+                0 => Corners {
+                    top_left: r,
+                    top_right: px(0.0),
+                    bottom_right: px(0.0),
+                    bottom_left: r,
+                },
+                1 => Corners::all(px(0.0)),
+                _ => Corners {
+                    top_left: px(0.0),
+                    top_right: r,
+                    bottom_right: r,
+                    bottom_left: px(0.0),
+                },
+            };
+            (b, c)
+        } else {
+            let b = Bounds {
+                origin: point(px(origin_x), px(origin_y + s0)),
+                size: size(px(width), px(len)),
+            };
+            let c = match seg {
+                0 => Corners {
+                    top_left: r,
+                    top_right: r,
+                    bottom_right: px(0.0),
+                    bottom_left: px(0.0),
+                },
+                1 => Corners::all(px(0.0)),
+                _ => Corners {
+                    top_left: px(0.0),
+                    top_right: px(0.0),
+                    bottom_right: r,
+                    bottom_left: r,
+                },
+            };
+            (b, c)
+        };
+
+        window.paint_quad(quad(
+            seg_bounds,
+            seg_corners,
+            linear_gradient(
+                angle,
+                linear_color_stop(rgb_to_hsla(stops[seg], alphas[seg]), 0.0),
+                linear_color_stop(rgb_to_hsla(stops[seg + 1], alphas[seg + 1]), 1.0),
+            ),
+            Edges::default(),
+            transparent_black(),
+            BorderStyle::Solid,
+        ));
+    }
+}
+
+/// Paints a concentric GPU-SDF rounded 4-color gradient border frame + solid or frosted inner card.
+pub fn paint_rounded_gradient_frame(
+    bounds: Bounds<Pixels>,
+    radius_px: f32,
+    border_px: f32,
+    stops: FourStops,
+    border_alpha: f32,
+    inner_bg: Hsla,
+    inner_wash_alpha: f32,
+    window: &mut Window,
+) {
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    if width <= border_px * 2.0 || height <= border_px * 2.0 {
+        return;
+    }
+
+    // 1. Outer 4-color gradient perimeter with smooth GPU SDF rounded corners
+    let outer_r = px(radius_px);
+    paint_rounded_four_stop_band(
+        bounds,
+        outer_r,
+        stops,
+        [border_alpha, border_alpha, border_alpha, border_alpha],
+        true,
+        window,
+    );
+
+    // 2. Concentric inset inner card (solid opaque for code boxes, frosted glass for UI pills/cards)
+    let inner_bounds = Bounds {
+        origin: point(
+            bounds.origin.x + px(border_px),
+            bounds.origin.y + px(border_px),
+        ),
+        size: size(
+            px((width - border_px * 2.0).max(0.0)),
+            px((height - border_px * 2.0).max(0.0)),
+        ),
+    };
+    let inner_r = px((radius_px - border_px).max(0.0));
+    window.paint_quad(quad(
+        inner_bounds,
+        Corners::all(inner_r),
+        inner_bg,
+        Edges::default(),
+        transparent_black(),
+        BorderStyle::Solid,
+    ));
+
+    // 3. Optional subtle inner 4-color bar wash matching VS Code `--g-bar` / `--g-chat-bar`
+    if inner_wash_alpha > 0.001 {
+        paint_rounded_four_stop_band(
+            inner_bounds,
+            inner_r,
+            stops,
+            [
+                inner_wash_alpha,
+                inner_wash_alpha * 0.80,
+                inner_wash_alpha * 0.80,
+                inner_wash_alpha * 1.10,
+            ],
+            true,
+            window,
+        );
+    }
+}
+
+/// Mounts an absolute `inset_0()` GPU-SDF rounded breathing gradient frame canvas as the FIRST
+/// child of any `relative()` container (User Prompt, Chat Composer, Code Box, Opened Thread,
+/// Opened File, Active Tab, Buttons). Automatically breathes in lockstep at 24 FPS!
+pub fn render_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    solid_inner: bool,
+    inner_wash_alpha: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    if !is_enabled(cx) {
+        return None;
+    }
+
+    let solid_code_bg = if solid_inner {
+        solid_code_block_background(cx)
+    } else {
+        canvas_background(cx)
+    };
+
+    Some(
+        canvas(
+            |_, _, _| (),
+            move |bounds: Bounds<Pixels>, (), window, cx| {
+                let Some(state) = cx.try_global::<GradientChromeState>() else {
+                    return;
+                };
+                if !state.enabled {
+                    return;
+                }
+                let inset_bounds = Bounds {
+                    origin: point(
+                        bounds.origin.x + px(inset_x_px),
+                        bounds.origin.y + px(inset_y_px),
+                    ),
+                    size: size(
+                        px((f32::from(bounds.size.width) - inset_x_px * 2.0).max(0.0)),
+                        px((f32::from(bounds.size.height) - inset_y_px * 2.0).max(0.0)),
+                    ),
+                };
+                let (stops, pulse) =
+                    state.live_stops_and_pulse(override_stops, window.is_window_active());
+                let inner_bg = if solid_inner {
+                    solid_code_bg
+                } else {
+                    state
+                        .canvas_bg
+                        .opacity(if state.is_light { 0.82 } else { 0.80 })
+                };
+                let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
+                let w_alpha = if inner_wash_alpha > 0.0 {
+                    (inner_wash_alpha * pulse).clamp(0.0, 0.45)
+                } else {
+                    0.0
+                };
+                paint_rounded_gradient_frame(
+                    inset_bounds,
+                    radius_px,
+                    border_px,
+                    stops,
+                    b_alpha,
+                    inner_bg,
+                    w_alpha,
+                    window,
+                );
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element(),
+    )
+}
+
+/// Mounts an absolute `inset_0()` live-breathing 4-stop gradient strip for panel dividers & edges.
+pub fn render_gradient_edge_canvas(
+    override_stops: Option<FourStops>,
+    horizontal: bool,
+    alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    if !is_enabled(cx) {
+        return None;
+    }
+
+    Some(
+        canvas(
+            |_, _, _| (),
+            move |bounds: Bounds<Pixels>, (), window, cx| {
+                let Some(state) = cx.try_global::<GradientChromeState>() else {
+                    return;
+                };
+                if !state.enabled {
+                    return;
+                }
+                let (stops, pulse) =
+                    state.live_stops_and_pulse(override_stops, window.is_window_active());
+                let a = (alpha * pulse).clamp(0.12, 0.96);
+                paint_rounded_four_stop_band(bounds, px(0.0), stops, [a, a, a, a], horizontal, window);
+            },
+        )
+        .absolute()
+        .inset_0()
+        .into_any_element(),
+    )
+}

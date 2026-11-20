@@ -769,8 +769,28 @@ impl RenderOnce for ButtonLike {
             .active_background
             .unwrap_or_else(|| style.active(cx).background);
 
+        let use_gradient_frame = crate::gradient_chrome::is_enabled(cx)
+            && (matches!(
+                style,
+                ButtonStyle::Filled | ButtonStyle::Outlined | ButtonStyle::Tinted(TintColor::Accent)
+            ) || (self.selected
+                && !matches!(
+                    style,
+                    ButtonStyle::Tinted(TintColor::Error | TintColor::Warning | TintColor::Success)
+                )));
+        let button_gradient_frame = use_gradient_frame
+            .then(|| {
+                let wash = if self.disabled { 0.08 } else { 0.16 };
+                let border = if self.disabled { 0.42 } else { 0.86 };
+                crate::gradient_chrome::render_gradient_frame_canvas(
+                    None, 6.0, 1.25, 0.0, 0.0, false, wash, border, cx,
+                )
+            })
+            .flatten();
+
         self.base
             .h_flex()
+            .relative()
             .id(self.id.clone())
             .role(self.aria_role.unwrap_or(Role::Button))
             .when_some(self.aria_label, |this, label| this.aria_label(label))
@@ -821,8 +841,16 @@ impl RenderOnce for ButtonLike {
                 }
                 ButtonSize::None => this.px_px(),
             })
-            .border_color(style.enabled(self.layer, cx).border_color)
-            .bg(style.enabled(self.layer, cx).background)
+            .border_color(if use_gradient_frame {
+                transparent_black()
+            } else {
+                style.enabled(self.layer, cx).border_color
+            })
+            .bg(if use_gradient_frame {
+                transparent_black()
+            } else {
+                style.enabled(self.layer, cx).background
+            })
             .when(self.disabled, |this| {
                 if self.cursor_style == CursorStyle::PointingHand {
                     this.cursor_not_allowed()
@@ -836,17 +864,26 @@ impl RenderOnce for ButtonLike {
                 let focus_color = |refinement: StyleRefinement| refinement.bg(hover_background);
 
                 this.cursor(self.cursor_style)
-                    .hover(focus_color)
-                    .map(|this| {
-                        if is_outlined {
-                            this.focus_visible(|s| {
+                    .when(use_gradient_frame, |this| {
+                        this.hover(|s| s.opacity(0.90))
+                            .active(|s| s.opacity(0.80))
+                            .focus_visible(|s| {
                                 s.border_color(cx.theme().colors().border_focused)
                             })
-                        } else {
-                            this.focus_visible(focus_color)
-                        }
                     })
-                    .active(|active| active.bg(active_background))
+                    .when(!use_gradient_frame, |this| {
+                        this.hover(focus_color)
+                            .map(|this| {
+                                if is_outlined {
+                                    this.focus_visible(|s| {
+                                        s.border_color(cx.theme().colors().border_focused)
+                                    })
+                                } else {
+                                    this.focus_visible(focus_color)
+                                }
+                            })
+                            .active(|active| active.bg(active_background))
+                    })
             })
             .when_some(
                 self.on_right_click.filter(|_| !self.disabled),
@@ -901,6 +938,7 @@ impl RenderOnce for ButtonLike {
                 }
                 this
             })
+            .children(button_gradient_frame)
             .children(self.children)
     }
 }

@@ -172,25 +172,9 @@ pub enum GradientEdge {
     Right,
 }
 
-fn render_four_stop_fill(stops: FourStops, alpha: f32, horizontal: bool) -> AnyElement {
-    canvas(
-        |_, _, _| (),
-        move |bounds: Bounds<Pixels>, (), window, _cx| {
-            let width = f32::from(bounds.size.width);
-            let height = f32::from(bounds.size.height);
-            if width <= 0.0 || height <= 0.0 {
-                return;
-            }
-            paint_four_stop_band(bounds, stops, [alpha, alpha, alpha, alpha], horizontal, window);
-        },
-    )
-    .absolute()
-    .inset_0()
-    .into_any_element()
-}
-
-/// Paints a sleek 4-color rainbow gradient hairline along one edge of a `relative()` container
-/// (matching VS Code's `--g-border` / `--g-border-v` panel dividers) with zero layout shift.
+/// Paints a sleek, live-breathing 4-color rainbow gradient hairline along one edge of a
+/// `relative()` container (matching VS Code's `--g-border` / `--g-border-v` panel dividers)
+/// with zero layout shift.
 pub fn render_gradient_edge(
     region: Option<PanelRegion>,
     edge: GradientEdge,
@@ -202,8 +186,11 @@ pub fn render_gradient_edge(
     if !state.enabled {
         return None;
     }
-    let stops = state.resolved_stops(region);
+    let custom_override =
+        region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
     let horizontal = matches!(edge, GradientEdge::Top | GradientEdge::Bottom);
+    let edge_canvas =
+        ui::gradient_chrome::render_gradient_edge_canvas(custom_override, horizontal, alpha, cx)?;
     let mut strip = div().absolute().overflow_hidden();
     strip = match edge {
         GradientEdge::Top => strip.top_0().left_0().right_0().h(px(thickness_px)),
@@ -211,14 +198,11 @@ pub fn render_gradient_edge(
         GradientEdge::Left => strip.top_0().bottom_0().left_0().w(px(thickness_px)),
         GradientEdge::Right => strip.top_0().bottom_0().right_0().w(px(thickness_px)),
     };
-    Some(
-        strip
-            .child(render_four_stop_fill(stops, alpha, horizontal))
-            .into_any_element(),
-    )
+    Some(strip.child(edge_canvas).into_any_element())
 }
 
-/// Paints an in-flow 4-color rainbow gradient divider line (e.g. between sidebar project groups).
+/// Paints an in-flow, live-breathing 4-color rainbow gradient divider line (e.g. between sidebar
+/// project groups).
 pub fn render_gradient_divider(
     region: Option<PanelRegion>,
     horizontal: bool,
@@ -230,22 +214,22 @@ pub fn render_gradient_divider(
     if !state.enabled {
         return None;
     }
-    let stops = state.resolved_stops(region);
+    let custom_override =
+        region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
+    let edge_canvas =
+        ui::gradient_chrome::render_gradient_edge_canvas(custom_override, horizontal, alpha, cx)?;
     let mut strip = div().relative().flex_shrink_0().overflow_hidden();
     strip = if horizontal {
         strip.w_full().h(px(thickness_px))
     } else {
         strip.h_full().w(px(thickness_px))
     };
-    Some(
-        strip
-            .child(render_four_stop_fill(stops, alpha, horizontal))
-            .into_any_element(),
-    )
+    Some(strip.child(edge_canvas).into_any_element())
 }
 
-/// Wraps `content` in VS Code's signature rounded 4-color gradient border frame (`1.5px` prism
-/// perimeter around a frosted translucent glass surface with crisp content on top).
+/// Wraps `content` in VS Code's signature GPU-SDF rounded, live-breathing 4-color gradient border
+/// frame (`1.5px` prism perimeter around a frosted translucent glass surface with crisp content on
+/// top).
 pub fn wrap_gradient_frame(
     region: Option<PanelRegion>,
     radius_px: f32,
@@ -257,23 +241,29 @@ pub fn wrap_gradient_frame(
     let Some(state) = cx.try_global::<GradientStudioState>().filter(|s| s.enabled) else {
         return content;
     };
-    let stops = state.resolved_stops(region);
+    let custom_override =
+        region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
     let is_light = cx.theme().appearance() == Appearance::Light;
-    let canvas_bg = canvas_background(cx);
-    let inner_bg = canvas_bg.opacity(if is_light { 0.80 } else { 0.78 });
-    let inner_wash_alpha = if is_light { 0.09 } else { 0.14 };
-    let border_alpha = if is_light { 0.86 } else { 0.82 };
+    let inner_wash_alpha = if is_light { 0.10 } else { 0.14 };
+    let border_alpha = if is_light { 0.88 } else { 0.84 };
 
-    let mut inner = div()
-        .relative()
-        .w_full()
-        .rounded(px((radius_px - border_px).max(2.0)))
-        .overflow_hidden()
-        .bg(inner_bg)
-        .child(render_four_stop_fill(stops, inner_wash_alpha, true))
-        .child(content);
+    let Some(frame_canvas) = ui::gradient_chrome::render_gradient_frame_canvas(
+        custom_override,
+        radius_px,
+        border_px,
+        0.0,
+        0.0,
+        false,
+        inner_wash_alpha,
+        border_alpha,
+        cx,
+    ) else {
+        return content;
+    };
+
+    let mut content_wrap = div().relative().w_full().child(content);
     if fill_height {
-        inner = inner.flex_1().h_full().flex().flex_col();
+        content_wrap = content_wrap.flex_1().h_full().flex().flex_col();
     }
 
     let mut outer = div()
@@ -281,10 +271,9 @@ pub fn wrap_gradient_frame(
         .w_full()
         .p(px(border_px))
         .rounded(px(radius_px))
-        .overflow_hidden()
         .shadow_sm()
-        .child(render_four_stop_fill(stops, border_alpha, true))
-        .child(inner);
+        .child(frame_canvas)
+        .child(content_wrap);
     if fill_height {
         outer = outer.flex_1().h_full().flex().flex_col();
     }
@@ -339,6 +328,7 @@ fn render_aurora_element(
         };
         let speed_mult = (cfg.speed_pct / 100.0).clamp(0.25, 2.5);
         let cycle_secs = (18.0 / speed_mult).clamp(5.0, 72.0);
+        let breathe_origin = state.breathe_origin;
         let focal_static = compute_focal_points(None, cfg);
         build_aurora_canvas(
             stops,
@@ -354,7 +344,11 @@ fn render_aurora_element(
             Animation::new(Duration::from_secs_f32(cycle_secs))
                 .repeat_synced()
                 .with_max_fps(24.0),
-            move |_prev, delta| {
+            move |_prev, _anim_delta| {
+                // Phase-locked to `breathe_origin` so background aurora, frames, dividers,
+                // buttons, tabs, threads, context circle, and text selections breathe as one.
+                let delta =
+                    (breathe_origin.elapsed().as_secs_f32() / cycle_secs).rem_euclid(1.0);
                 let phase = delta * TAU;
                 let focal = compute_focal_points(Some(phase), cfg);
                 let pulse_mult = if cfg.pulse {
@@ -367,7 +361,7 @@ fn render_aurora_element(
                 } else {
                     base_angle
                 };
-                let active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
+                let mut active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
                     let count = CURATED_PALETTES.len().min(12);
                     let pos = delta * count as f32;
                     let idx_a = (pos.floor() as usize) % count;
@@ -381,6 +375,9 @@ fn render_aurora_element(
                 } else {
                     stops
                 };
+                if cfg.shimmer {
+                    active_stops = ui::gradient_chrome::shimmer_shift_stops(active_stops, delta * 4.0);
+                }
                 build_aurora_canvas(
                     active_stops,
                     angle,
@@ -440,37 +437,14 @@ fn paint_four_stop_band(
     horizontal: bool,
     window: &mut Window,
 ) {
-    let origin_x = f32::from(bounds.origin.x);
-    let origin_y = f32::from(bounds.origin.y);
-    let width = f32::from(bounds.size.width);
-    let height = f32::from(bounds.size.height);
-    let angle = if horizontal { 90.0 } else { 180.0 };
-
-    for seg in 0..3 {
-        let t0 = seg as f32 / 3.0;
-        let t1 = (seg + 1) as f32 / 3.0;
-        let seg_bounds = if horizontal {
-            Bounds {
-                origin: point(px(origin_x + t0 * width), px(origin_y)),
-                size: size(px((t1 - t0) * width + 0.5), px(height)),
-            }
-        } else {
-            Bounds {
-                origin: point(px(origin_x), px(origin_y + t0 * height)),
-                size: size(px(width), px((t1 - t0) * height + 0.5)),
-            }
-        };
-        let from = rgb_to_hsla(stops[seg], alphas[seg]);
-        let to = rgb_to_hsla(stops[seg + 1], alphas[seg + 1]);
-        window.paint_quad(fill(
-            seg_bounds,
-            linear_gradient(
-                angle,
-                linear_color_stop(from, 0.0),
-                linear_color_stop(to, 1.0),
-            ),
-        ));
-    }
+    ui::gradient_chrome::paint_rounded_four_stop_band(
+        bounds,
+        px(0.0),
+        stops,
+        alphas,
+        horizontal,
+        window,
+    );
 }
 
 fn paint_clipped_radial(

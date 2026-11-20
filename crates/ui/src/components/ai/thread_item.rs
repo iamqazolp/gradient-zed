@@ -256,8 +256,8 @@ impl RenderOnce for ThreadItem {
         // The fade gradient paints a solid color over the title to blend it into
         // the row background, but a transparent window has no opaque surface to
         // fade into, so it renders as a visible patch; truncate the title instead.
-        let opaque_window = cx.theme().window_background_appearance()
-            == WindowBackgroundAppearance::Opaque
+        let opaque_window = !crate::gradient_chrome::is_enabled(cx)
+            && cx.theme().window_background_appearance() == WindowBackgroundAppearance::Opaque
             && raw_bg.a >= 1.0;
         let apparent_bg = color.background.blend(raw_bg);
 
@@ -427,6 +427,13 @@ impl RenderOnce for ThreadItem {
             || has_diff_stats
             || has_timestamp;
 
+        let gradient_selected = self.selected && crate::gradient_chrome::is_enabled(cx);
+        let gradient_frame = gradient_selected.then(|| {
+            crate::gradient_chrome::render_gradient_frame_canvas(
+                None, 8.0, 1.5, 4.0, 1.0, false, 0.15, 0.86, cx,
+            )
+        }).flatten();
+
         v_flex()
             .id(self.id.clone())
             .cursor_pointer()
@@ -436,16 +443,23 @@ impl RenderOnce for ThreadItem {
             .overflow_hidden()
             .w_full()
             .py_1()
-            .px_1p5()
-            .when(self.selected, |s| s.bg(color.ghost_element_selected))
+            .px_2p5()
+            .when(self.selected && !gradient_selected, |s| {
+                s.bg(color.ghost_element_selected)
+            })
             .border_1()
             .border_r_2()
             .border_color(gpui::transparent_black())
-            .when(self.focused, |s| s.border_color(color.panel_focused_border))
+            .when(self.focused && !gradient_selected, |s| {
+                s.border_color(color.panel_focused_border)
+            })
             .when(self.rounded, |s| s.rounded_sm())
-            .hover(|s| s.bg(color.ghost_element_hover))
-            .active(|s| s.bg(color.ghost_element_active))
+            .when(!gradient_selected, |s| {
+                s.hover(|s| s.bg(color.ghost_element_hover))
+                    .active(|s| s.bg(color.ghost_element_active))
+            })
             .on_hover(self.on_hover)
+            .children(gradient_frame)
             .child(
                 h_flex()
                     .min_w_0()

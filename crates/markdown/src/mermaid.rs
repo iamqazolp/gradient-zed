@@ -595,6 +595,11 @@ pub(crate) fn render_mermaid_diagram(
 
     let mut container = div().group("code_block").relative().w_full().rounded_lg();
     container.style().refine(&style.code_block);
+    if let Some(frame) = ui::gradient_chrome::render_gradient_frame_canvas(
+        None, 8.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
+    ) {
+        container = container.child(frame);
+    }
 
     match render_result {
         Some(Ok(render_image)) => {

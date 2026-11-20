@@ -3,6 +3,7 @@ use std::sync::Arc;
 use gpui::{App, BorrowAppContext as _, Global, Hsla, transparent_black};
 use theme::{ActiveTheme as _, Appearance, GlobalTheme, Theme};
 
+use crate::palettes::CURATED_PALETTES;
 use crate::state::GradientStudioState;
 
 const GLASS_THEME_SUFFIX: &str = "#gradient-glass";
@@ -42,6 +43,48 @@ pub fn is_enabled(cx: &App) -> bool {
         .is_some_and(|s| s.enabled)
 }
 
+/// Synchronizes the lightweight `ui::gradient_chrome::GradientChromeState` global so every
+/// UI component (`ui`, `markdown`, `editor`, `project_panel`, `agent_ui`) breathes in lockstep
+/// with Gradient Studio's palette, speed, pulse, shimmer, auto-morph, and solid canvas base.
+pub fn sync_chrome_state(cx: &mut App) {
+    let Some(state) = cx.try_global::<GradientStudioState>() else {
+        return;
+    };
+    let speed_mult = (state.breathe_cfg.speed_pct / 100.0).clamp(0.25, 2.5);
+    let cycle_secs = (18.0 / speed_mult).clamp(5.0, 72.0);
+    let canvas_bg = canvas_background(cx);
+    let is_light = cx.has_global::<GlobalTheme>()
+        && GlobalTheme::theme(cx).appearance == Appearance::Light;
+    let morph_palettes: Vec<ui::gradient_chrome::FourStops> = CURATED_PALETTES
+        .iter()
+        .take(12)
+        .map(|p| p.stops)
+        .collect();
+
+    let next = ui::gradient_chrome::GradientChromeState {
+        enabled: state.enabled,
+        stops: state.stops,
+        breathe: state.breathe,
+        breathe_origin: state.breathe_origin,
+        breathe_cycle_secs: cycle_secs,
+        breathe_pulse: state.breathe_cfg.pulse,
+        breathe_shimmer: state.breathe_cfg.shimmer,
+        breathe_auto_morph: state.breathe_cfg.auto_morph,
+        intensity: state.intensity,
+        canvas_bg,
+        is_light,
+        morph_palettes,
+    };
+
+    if cx.has_global::<ui::gradient_chrome::GradientChromeState>() {
+        cx.update_global::<ui::gradient_chrome::GradientChromeState, _>(|chrome, _| {
+            *chrome = next;
+        });
+    } else {
+        cx.set_global(next);
+    }
+}
+
 /// Initializes observers that keep structural panel backgrounds transparent while Gradient Aurora
 /// is active (so the aurora renders *behind* text, code, buttons, and icons at 100% contrast),
 /// and cleanly restores the original opaque theme whenever the overlay is toggled off.
@@ -58,6 +101,7 @@ pub fn init(cx: &mut App) {
     });
 
     sync_theme_glass(cx);
+    sync_chrome_state(cx);
 
     cx.observe_global::<GlobalTheme>(|cx| {
         cx.defer(sync_theme_glass);
@@ -93,20 +137,26 @@ pub fn sync_theme_glass(cx: &mut App) {
 
     if enabled {
         if is_currently_glass {
+            sync_chrome_state(cx);
             return;
         }
         let Some(raw) = cx.global::<GradientThemeGlass>().raw_theme.clone() else {
+            sync_chrome_state(cx);
             return;
         };
         let canvas_bg = cx.global::<GradientThemeGlass>().canvas_bg;
         let glass_theme = build_glass_theme(&raw, canvas_bg);
         GlobalTheme::update_theme(cx, Arc::new(glass_theme));
+        sync_chrome_state(cx);
         cx.refresh_windows();
     } else if is_currently_glass {
         if let Some(raw) = cx.global::<GradientThemeGlass>().raw_theme.clone() {
             GlobalTheme::update_theme(cx, raw);
+            sync_chrome_state(cx);
             cx.refresh_windows();
         }
+    } else {
+        sync_chrome_state(cx);
     }
 }
 

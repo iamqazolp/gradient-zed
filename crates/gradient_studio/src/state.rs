@@ -644,6 +644,7 @@ pub fn update_state(cx: &mut App, f: impl FnOnce(&mut GradientStudioState)) {
         state.visual_revision != prev_rev
     });
     if visual_changed {
+        crate::theme_glass::sync_chrome_state(cx);
         cx.refresh_windows();
     }
 }

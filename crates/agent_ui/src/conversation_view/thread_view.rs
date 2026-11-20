@@ -497,8 +497,12 @@ fn render_cat_numbered_code_block(
         .group("read-file-code-block")
         .relative()
         .w_full()
+        .rounded_lg()
         .whitespace_nowrap();
     container.style().refine(&markdown_style.code_block);
+    let gradient_code_frame = ui::gradient_chrome::render_gradient_frame_canvas(
+        None, 8.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
+    );
 
     // `overflow_x_scroll` only actually scrolls when the container is laid out
     // as a flex container: in GPUI the default `Display` is `Block`, and a
@@ -519,8 +523,10 @@ fn render_cat_numbered_code_block(
         .child(div().flex_none().child(code_text));
 
     container
+        .children(gradient_code_frame)
         .child(
             h_flex()
+                .relative()
                 .items_start()
                 .min_w_0()
                 .w_full()

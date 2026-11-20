@@ -1,7 +1,8 @@
 use documented::Documented;
-use gpui::{Hsla, PathBuilder, canvas, point};
+use gpui::{Background, Hsla, PathBuilder, canvas, linear_color_stop, linear_gradient, point};
 use std::f32::consts::PI;
 
+use crate::gradient_chrome::{GradientChromeState, rgb_to_hsla};
 use crate::prelude::*;
 
 /// A circular progress indicator that displays progress as an arc growing clockwise from the top.
@@ -88,11 +89,41 @@ impl RenderOnce for CircularProgress {
 
         canvas(
             |_, _, _| {},
-            move |bounds, _, window, _cx| {
+            move |bounds, _, window, cx| {
                 let current_value = value;
 
                 let center_x = bounds.origin.x + bounds.size.width / 2.0;
                 let center_y = bounds.origin.y + bounds.size.height / 2.0;
+                let progress = if max_value > 0.0 {
+                    (current_value / max_value).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+
+                let gradient_brushes: Option<(Background, Background)> = cx
+                    .try_global::<GradientChromeState>()
+                    .filter(|s| s.enabled)
+                    .map(|state| {
+                        let (stops, pulse) =
+                            state.live_stops_and_pulse(None, window.is_window_active());
+                        let track_a = (0.34 * pulse).clamp(0.18, 0.55);
+                        let track = linear_gradient(
+                            135.0,
+                            linear_color_stop(rgb_to_hsla(stops[0], track_a), 0.0),
+                            linear_color_stop(rgb_to_hsla(stops[3], track_a), 1.0),
+                        );
+                        let arc: Background = if progress >= 0.85 {
+                            progress_color.into()
+                        } else {
+                            let arc_a = (0.94 * pulse).clamp(0.70, 1.0);
+                            linear_gradient(
+                                135.0,
+                                linear_color_stop(rgb_to_hsla(stops[0], arc_a), 0.0),
+                                linear_color_stop(rgb_to_hsla(stops[3], arc_a), 1.0),
+                            )
+                        };
+                        (track, arc)
+                    });
 
                 // Draw background circle (full 360 degrees)
                 let mut bg_builder = PathBuilder::stroke(stroke_width);
@@ -118,11 +149,14 @@ impl RenderOnce for CircularProgress {
                 bg_builder.close();
 
                 if let Ok(path) = bg_builder.build() {
-                    window.paint_path(path, bg_color);
+                    let track_brush: Background = gradient_brushes
+                        .as_ref()
+                        .map(|(track, _)| *track)
+                        .unwrap_or_else(|| bg_color.into());
+                    window.paint_path(path, track_brush);
                 }
 
                 // Draw progress arc if there's any progress
-                let progress = (current_value / max_value).clamp(0.0, 1.0);
                 if progress > 0.0 {
                     let mut progress_builder = PathBuilder::stroke(stroke_width);
 
@@ -172,7 +206,11 @@ impl RenderOnce for CircularProgress {
                     }
 
                     if let Ok(path) = progress_builder.build() {
-                        window.paint_path(path, progress_color);
+                        let arc_brush: Background = gradient_brushes
+                            .as_ref()
+                            .map(|(_, arc)| *arc)
+                            .unwrap_or_else(|| progress_color.into());
+                        window.paint_path(path, arc_brush);
                     }
                 }
             },

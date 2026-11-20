@@ -6248,6 +6248,16 @@ impl ProjectPanel {
                     .into_owned()
             });
 
+        let gradient_selected =
+            (is_active || is_marked) && !is_sticky && ui::gradient_chrome::is_enabled(cx);
+        let gradient_frame = gradient_selected
+            .then(|| {
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None, 6.0, 1.5, 4.0, 1.0, false, 0.14, 0.86, cx,
+                )
+            })
+            .flatten();
+
         div()
             .id(id.clone())
             .relative()
@@ -6270,11 +6280,22 @@ impl ProjectPanel {
             )
             .cursor_pointer()
             .rounded_none()
-            .bg(bg_color)
+            .bg(if gradient_selected {
+                gpui::transparent_black()
+            } else {
+                bg_color
+            })
             .border_1()
             .border_r_2()
-            .border_color(border_color)
-            .hover(|style| style.bg(bg_hover_color).border_color(border_hover_color))
+            .border_color(if gradient_selected {
+                gpui::transparent_black()
+            } else {
+                border_color
+            })
+            .when(!gradient_selected, |this| {
+                this.hover(|style| style.bg(bg_hover_color).border_color(border_hover_color))
+            })
+            .children(gradient_frame)
             .when(is_sticky, |this| this.block_mouse_except_scroll())
             .when(!is_sticky, |this| {
                 this.when(

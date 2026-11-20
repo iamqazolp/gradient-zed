@@ -239,10 +239,13 @@ impl MarkdownStyle {
             ..Default::default()
         });
 
+        let gradient_chrome_on = ui::gradient_chrome::is_enabled(cx);
+        let code_block_pad = if gradient_chrome_on { px(10.) } else { px(8.) };
         let style = MarkdownStyle {
             base_text_style: text_style.clone(),
             syntax: syntax.clone(),
-            selection_background_color: colors.element_selection_background,
+            selection_background_color: ui::gradient_chrome::markdown_selection_tint(cx)
+                .unwrap_or(colors.element_selection_background),
             rule_color: colors.border,
             block_quote_border_color: colors.border,
             block_quote_kind_colors: {
@@ -258,10 +261,10 @@ impl MarkdownStyle {
             code_block_overflow_x_scroll: true,
             code_block: StyleRefinement {
                 padding: EdgesRefinement {
-                    top: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(px(8.)))),
-                    left: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(px(8.)))),
-                    right: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(px(8.)))),
-                    bottom: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(px(8.)))),
+                    top: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(code_block_pad))),
+                    left: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(code_block_pad))),
+                    right: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(code_block_pad))),
+                    bottom: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(code_block_pad))),
                 },
                 margin: EdgesRefinement {
                     top: Some(Length::Definite(px(8.).into())),
@@ -269,15 +272,19 @@ impl MarkdownStyle {
                     right: Some(Length::Definite(px(0.).into())),
                     bottom: Some(Length::Definite(px(12.).into())),
                 },
-                border_style: Some(BorderStyle::Solid),
-                border_widths: EdgesRefinement {
-                    top: Some(AbsoluteLength::Pixels(px(1.))),
-                    left: Some(AbsoluteLength::Pixels(px(1.))),
-                    right: Some(AbsoluteLength::Pixels(px(1.))),
-                    bottom: Some(AbsoluteLength::Pixels(px(1.))),
+                border_style: (!gradient_chrome_on).then_some(BorderStyle::Solid),
+                border_widths: if gradient_chrome_on {
+                    Default::default()
+                } else {
+                    EdgesRefinement {
+                        top: Some(AbsoluteLength::Pixels(px(1.))),
+                        left: Some(AbsoluteLength::Pixels(px(1.))),
+                        right: Some(AbsoluteLength::Pixels(px(1.))),
+                        bottom: Some(AbsoluteLength::Pixels(px(1.))),
+                    }
                 },
-                border_color: Some(colors.border_variant),
-                background: Some(colors.editor_background.into()),
+                border_color: (!gradient_chrome_on).then_some(colors.border_variant),
+                background: (!gradient_chrome_on).then(|| colors.editor_background.into()),
                 text: TextStyleRefinement {
                     font_family: Some(code_font_family.clone()),
                     font_fallbacks: theme_settings.buffer_font.fallbacks.clone(),
@@ -2694,7 +2701,8 @@ impl Element for MarkdownElement {
                 selection: (selection.start < selection.end).then(|| {
                     (
                         selection.start..selection.end,
-                        self.style.selection_background_color,
+                        ui::gradient_chrome::markdown_selection_tint_live(window, cx)
+                            .unwrap_or(self.style.selection_background_color),
                     )
                 }),
                 next_search_highlight_ix: 0,
@@ -2909,36 +2917,52 @@ impl Element for MarkdownElement {
 
                             match (&self.code_block_renderer, is_indented) {
                                 (CodeBlockRenderer::Default { .. }, _) | (_, true) => {
+                                    let gradient_chrome_on = ui::gradient_chrome::is_enabled(cx);
                                     // This is a parent container that we can position the copy button inside.
                                     let mut parent_container = div()
                                         .group("code_block")
                                         .relative()
                                         .w_full()
-                                        .when(scroll_handle.is_some(), |this| this.rounded_lg());
+                                        .when(
+                                            scroll_handle.is_some() || gradient_chrome_on,
+                                            |this| this.rounded_lg(),
+                                        );
 
                                     if let CodeBlockRenderer::Default { border: true, .. } =
                                         &self.code_block_renderer
                                     {
-                                        parent_container = parent_container
-                                            .rounded_md()
-                                            .border_1()
-                                            .border_color(cx.theme().colors().border_variant);
+                                        if !gradient_chrome_on {
+                                            parent_container = parent_container
+                                                .rounded_md()
+                                                .border_1()
+                                                .border_color(cx.theme().colors().border_variant);
+                                        }
                                     }
 
                                     // Styles must be final before `custom_scrollbars`, which reads the
                                     // corner radii and borders to round the scrollbar track.
                                     parent_container.style().refine(&self.style.code_block);
 
+                                    if let Some(frame) =
+                                        ui::gradient_chrome::render_gradient_frame_canvas(
+                                            None, 8.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
+                                        )
+                                    {
+                                        parent_container = parent_container.child(frame);
+                                    }
+
                                     let parent_container: AnyDiv = if let Some(scroll_handle) =
                                         scroll_handle.as_ref()
                                     {
+                                        let track_bg = if gradient_chrome_on {
+                                            gpui::transparent_black()
+                                        } else {
+                                            cx.theme().colors().editor_background
+                                        };
                                         let scrollbars = Scrollbars::new(ScrollAxes::Horizontal)
                                             .id(("markdown-code-block-scrollbar", range.start))
                                             .tracked_scroll_handle(scroll_handle)
-                                            .with_track_along(
-                                                ScrollAxes::Horizontal,
-                                                cx.theme().colors().editor_background,
-                                            )
+                                            .with_track_along(ScrollAxes::Horizontal, track_bg)
                                             .notify_content();
 
                                         let mut parent_container = parent_container
@@ -3257,13 +3281,19 @@ impl Element for MarkdownElement {
                                         == WrapButtonVisibility::AlwaysVisible;
                                 let use_hover = any_hover && !any_always;
 
+                                let button_row_bg = if ui::gradient_chrome::is_enabled(cx) {
+                                    ui::gradient_chrome::solid_code_block_background(cx)
+                                } else {
+                                    cx.theme().colors().editor_background
+                                };
                                 let button_row = h_flex()
                                     .debug_selector(|| {
                                         format!("markdown_code_block_buttons_{}", range.end)
                                     })
                                     .gap_0p5()
                                     .absolute()
-                                    .bg(cx.theme().colors().editor_background)
+                                    .rounded_md()
+                                    .bg(button_row_bg)
                                     .when_else(
                                         use_hover,
                                         |this| {

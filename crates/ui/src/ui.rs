@@ -9,6 +9,7 @@
 
 pub mod component_prelude;
 mod components;
+pub mod gradient_chrome;
 pub mod prelude;
 mod styles;
 mod traits;

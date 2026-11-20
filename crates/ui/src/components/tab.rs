@@ -141,10 +141,26 @@ impl RenderOnce for Tab {
             }
         };
 
+        let gradient_selected = self.selected && crate::gradient_chrome::is_enabled(cx);
+        let gradient_frame = gradient_selected.then(|| {
+            crate::gradient_chrome::render_gradient_frame_canvas(
+                None, 6.0, 1.5, 2.0, 2.0, false, 0.15, 0.88, cx,
+            )
+        }).flatten();
+
         self.div
+            .relative()
             .h(Tab::container_height(cx))
-            .bg(tab_bg)
-            .border_color(cx.theme().colors().border)
+            .bg(if gradient_selected {
+                gpui::transparent_black()
+            } else {
+                tab_bg
+            })
+            .border_color(if gradient_selected {
+                gpui::transparent_black()
+            } else {
+                cx.theme().colors().border
+            })
             .map(|this| match self.position {
                 TabPosition::First => {
                     if self.selected {
@@ -165,6 +181,7 @@ impl RenderOnce for Tab {
                 TabPosition::Middle(Ordering::Greater) => this.border_r_1().pl_px().border_b_1(),
             })
             .cursor_pointer()
+            .children(gradient_frame)
             .child(
                 h_flex()
                     .group("")

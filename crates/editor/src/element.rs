@@ -5998,10 +5998,21 @@ impl EditorElement {
 
             for (player_color, selections) in &layout.selections {
                 for selection in selections.iter() {
+                    let selection_bg: gpui::Background = if selection.is_local {
+                        let opacity_scale = if player_color.selection.a < 0.25 {
+                            0.65
+                        } else {
+                            1.0
+                        };
+                        ui::gradient_chrome::selection_background(window, opacity_scale, cx)
+                            .unwrap_or_else(|| player_color.selection.into())
+                    } else {
+                        player_color.selection.into()
+                    };
                     self.paint_highlighted_range(
                         selection.range.clone(),
                         true,
-                        player_color.selection,
+                        selection_bg,
                         corner_radius,
                         corner_radius * 2.,
                         layout,
@@ -6591,7 +6602,7 @@ impl EditorElement {
         &self,
         range: Range<DisplayPoint>,
         fill: bool,
-        color: Hsla,
+        color: impl Into<gpui::Background>,
         corner_radius: Pixels,
         line_end_overshoot: Pixels,
         layout: &EditorLayout,
@@ -6600,6 +6611,7 @@ impl EditorElement {
         let start_row = layout.visible_display_row_range.start;
         let end_row = layout.visible_display_row_range.end;
         if range.start != range.end {
+            let background: gpui::Background = color.into();
             let row_range = if range.end.column() == 0 {
                 cmp::max(range.start.row(), start_row)..cmp::min(range.end.row(), end_row)
             } else {
@@ -6608,7 +6620,7 @@ impl EditorElement {
             };
 
             let highlighted_range = HighlightedRange {
-                color,
+                color: background.as_solid().unwrap_or_default(),
                 line_height: layout.position_map.line_height,
                 corner_radius,
                 start_y: layout.content_origin.y
@@ -6659,7 +6671,12 @@ impl EditorElement {
                     .collect(),
             };
 
-            highlighted_range.paint(fill, layout.position_map.text_hitbox.bounds, window);
+            highlighted_range.paint_with_background(
+                fill,
+                background,
+                layout.position_map.text_hitbox.bounds,
+                window,
+            );
         }
     }
 
@@ -11198,17 +11215,35 @@ pub struct HighlightedRangeLine {
 
 impl HighlightedRange {
     pub fn paint(&self, fill: bool, bounds: Bounds<Pixels>, window: &mut Window) {
+        self.paint_with_background(fill, self.color.into(), bounds, window);
+    }
+
+    pub fn paint_with_background(
+        &self,
+        fill: bool,
+        background: gpui::Background,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+    ) {
         if self.lines.len() >= 2 && self.lines[0].start_x > self.lines[1].end_x {
-            self.paint_lines(self.start_y, &self.lines[0..1], fill, bounds, window);
+            self.paint_lines(
+                self.start_y,
+                &self.lines[0..1],
+                fill,
+                background,
+                bounds,
+                window,
+            );
             self.paint_lines(
                 self.start_y + self.line_height,
                 &self.lines[1..],
                 fill,
+                background,
                 bounds,
                 window,
             );
         } else {
-            self.paint_lines(self.start_y, &self.lines, fill, bounds, window);
+            self.paint_lines(self.start_y, &self.lines, fill, background, bounds, window);
         }
     }
 
@@ -11217,6 +11252,7 @@ impl HighlightedRange {
         start_y: Pixels,
         lines: &[HighlightedRangeLine],
         fill: bool,
+        background: gpui::Background,
         _bounds: Bounds<Pixels>,
         window: &mut Window,
     ) {
@@ -11321,7 +11357,7 @@ impl HighlightedRange {
         builder.line_to(first_top_right - top_curve_width);
 
         if let Ok(path) = builder.build() {
-            window.paint_path(path, self.color);
+            window.paint_path(path, background);
         }
     }
 }
