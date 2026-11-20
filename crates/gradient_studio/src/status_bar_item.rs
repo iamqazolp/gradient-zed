@@ -547,6 +547,7 @@ impl Render for GradientStudioPopover {
         let can_undo = !state.history.is_empty();
 
         let active_scope = self.active_scope;
+        let global_stops = state.stops;
         let active_stops = state.resolved_stops(active_scope);
         let active_name = state.resolved_name(active_scope).to_string();
         let favorites = state.favorites.clone();
@@ -1173,7 +1174,7 @@ impl Render for GradientStudioPopover {
                                         let is_active = active_scope.is_none();
                                         let (bg, border, hover) =
                                             pill_colors(is_light, is_active, accent);
-                                        let stops = state.stops;
+                                        let stops = global_stops;
                                         div()
                                             .id("scope-all")
                                             .cursor_pointer()
@@ -1211,7 +1212,7 @@ impl Render for GradientStudioPopover {
                                         let region_stops = component_palettes
                                             .get(region)
                                             .map(|c| c.stops)
-                                            .unwrap_or(state.stops);
+                                            .unwrap_or(global_stops);
                                         let is_on = panels.is_enabled(region);
                                         div()
                                             .id(SharedString::from(format!(
@@ -1383,7 +1384,7 @@ impl Render for GradientStudioPopover {
                                                         s.clear_component_palette(panel)
                                                     })
                                                 })
-                                                .child(render_gradient_bar(state.stops, 6.0, 0.90))
+                                                .child(render_gradient_bar(global_stops, 6.0, 0.90))
                                                 .child(
                                                     Label::new(if is_unified {
                                                         "⇄ Same as All (Unified)"
