@@ -106,7 +106,10 @@ script/generate-licenses
 rustup target add $target_triple
 
 echo "Compiling zed binaries"
-if [[ "$target_dir" = "release" ]]; then
+if [[ "${FAST_BUNDLE:-0}" == "1" ]]; then
+    cargo rustc ${build_flag} ${zed_features} --package zed --bin zed --target $target_triple -- -C 'link-arg=-Wl,-unexported_symbol,__R*'
+    cargo build ${build_flag} --package cli --target $target_triple
+elif [[ "$target_dir" = "release" ]]; then
     cargo --config .cargo/bundle-config.toml rustc ${build_flag} ${zed_features} --package zed --bin zed --target $target_triple -- -C 'link-arg=-Wl,-unexported_symbol,__R*'
     cargo --config .cargo/bundle-config.toml build ${build_flag} --package cli --target $target_triple
 else
@@ -376,7 +379,9 @@ upload_debug_symbols
 # must be extracted before the binaries are stripped below. The .dwarf files
 # also keep symbols recoverable when the sentry upload is skipped.
 if [[ "$target_dir" == "release" && "$local_install" != true ]]; then
-    extract_debug_symbols
+    if [[ "${FAST_BUNDLE:-0}" != "1" ]]; then
+        extract_debug_symbols
+    fi
     strip -x "target/${target_triple}/${target_dir}/zed"
     strip -x "target/${target_triple}/${target_dir}/cli"
     if [[ "${SKIP_REMOTE_SERVER:-0}" != "1" ]]; then
