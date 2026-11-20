@@ -2,16 +2,20 @@ pub mod overlay;
 pub mod palettes;
 pub mod state;
 pub mod status_bar_item;
+pub mod theme_glass;
 
 use gpui::{App, actions};
 
-pub use overlay::{render_aurora_overlay, render_studio_card_backdrop};
+pub use overlay::{
+    render_aurora_overlay, render_studio_card_backdrop, render_zoomed_aurora_backdrop,
+};
 pub use palettes::{
     CURATED_PALETTES, CuratedPalette, CustomPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS,
     PaletteCategory,
 };
 pub use state::{BreatheConfig, GradientStudioState, PanelMask, PanelRegion, update_state};
 pub use status_bar_item::{GradientStudioButton, GradientStudioPopover};
+pub use theme_glass::{canvas_background, is_enabled};
 
 actions!(
     gradient_studio,
@@ -40,6 +44,7 @@ actions!(
 pub fn init(cx: &mut App) {
     let state = GradientStudioState::load();
     cx.set_global(state);
+    theme_glass::init(cx);
 }
 
 #[cfg(test)]

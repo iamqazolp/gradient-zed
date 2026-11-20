@@ -9062,15 +9062,15 @@ impl Workspace {
             .flex()
             .overflow_hidden()
             .flex_none()
-            .child(dock.clone())
-            .children(leader_border)
             .when(dock_is_open, |this| {
                 this.children(gradient_studio::render_aurora_overlay(
                     Some(panel_region),
                     window,
                     cx,
                 ))
-            });
+            })
+            .child(dock.clone())
+            .children(leader_border);
 
         // Apply sizing only when the dock is open. When closed the dock is still
         // included in the element tree so its focus handle remains mounted — without
@@ -9277,15 +9277,15 @@ impl Workspace {
                 this.track_focus(&self.region_focus_handles.editor)
             })
             .size_full()
+            .children(gradient_studio::render_aurora_overlay(
+                Some(gradient_studio::PanelRegion::Editor),
+                window,
+                cx,
+            ))
             .child(self.center.render(
                 self.zoomed.as_ref(),
                 self.maximized_pane.as_ref(),
                 render_cx,
-                window,
-                cx,
-            ))
-            .children(gradient_studio::render_aurora_overlay(
-                Some(gradient_studio::PanelRegion::Editor),
                 window,
                 cx,
             ))
@@ -10061,12 +10061,12 @@ impl Render for Workspace {
                         ))
                         .relative()
                         .w_full()
-                        .child(item)
                         .children(gradient_studio::render_aurora_overlay(
                             Some(gradient_studio::PanelRegion::Bars),
                             window,
                             cx,
-                        )),
+                        ))
+                        .child(item),
                 )
             })
             .on_modifiers_changed(move |_, _, cx| {
@@ -10442,12 +10442,34 @@ impl Render for Workspace {
                                         })
                                         .into_any_element(),
                                 };
+                                let zoomed_region = match self.zoomed_position {
+                                    Some(DockPosition::Left) => {
+                                        gradient_studio::PanelRegion::LeftDock
+                                    }
+                                    Some(DockPosition::Right) => {
+                                        gradient_studio::PanelRegion::RightDock
+                                    }
+                                    Some(DockPosition::Bottom) => {
+                                        gradient_studio::PanelRegion::BottomDock
+                                    }
+                                    None => gradient_studio::PanelRegion::Editor,
+                                };
+                                let zoomed_bg = if gradient_studio::is_enabled(cx) {
+                                    gradient_studio::canvas_background(cx)
+                                } else {
+                                    colors.background
+                                };
                                 let overlay = div()
                                     .occlude()
                                     .absolute()
                                     .overflow_hidden()
                                     .border_color(colors.border)
-                                    .bg(colors.background)
+                                    .bg(zoomed_bg)
+                                    .children(gradient_studio::render_zoomed_aurora_backdrop(
+                                        zoomed_region,
+                                        window,
+                                        cx,
+                                    ))
                                     .child(zoomed_element)
                                     .inset_0()
                                     .shadow_lg();
@@ -10472,12 +10494,12 @@ impl Render for Workspace {
                             div()
                                 .relative()
                                 .w_full()
-                                .child(self.status_bar.clone())
                                 .children(gradient_studio::render_aurora_overlay(
                                     Some(gradient_studio::PanelRegion::Bars),
                                     window,
                                     cx,
-                                )),
+                                ))
+                                .child(self.status_bar.clone()),
                         )
                     })
                     .child(self.toast_layer.clone()),

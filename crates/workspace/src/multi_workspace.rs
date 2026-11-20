@@ -2140,13 +2140,13 @@ impl Render for MultiWorkspace {
                     .h_full()
                     .w(sidebar_width)
                     .flex_shrink_0()
-                    .child(sidebar_handle.to_any())
-                    .child(resize_handle)
                     .children(gradient_studio::render_aurora_overlay(
                         Some(gradient_studio::PanelRegion::LeftDock),
                         window,
                         cx,
                     ))
+                    .child(sidebar_handle.to_any())
+                    .child(resize_handle)
                     .into_any_element()
             })
         } else {
@@ -2170,6 +2170,9 @@ impl Render for MultiWorkspace {
             root.key_context(workspace_key_context)
                 .relative()
                 .size_full()
+                .when(gradient_studio::is_enabled(cx), |this| {
+                    this.bg(gradient_studio::canvas_background(cx))
+                })
                 .font(ui_font)
                 .text_color(text_color)
                 .on_action(cx.listener(Self::close_window))
@@ -2263,6 +2266,7 @@ impl Render for MultiWorkspace {
                         ))
                     },
                 )
+                .children(gradient_studio::render_aurora_overlay(None, window, cx))
                 .children(left_sidebar)
                 .child(
                     div()
@@ -2273,7 +2277,6 @@ impl Render for MultiWorkspace {
                         .child(self.workspace().clone()),
                 )
                 .children(right_sidebar)
-                .children(gradient_studio::render_aurora_overlay(None, window, cx))
                 .child(self.workspace().read(cx).modal_layer.clone())
                 .children(self.sidebar_overlay.as_ref().map(|view| {
                     deferred(div().absolute().size_full().inset_0().occlude().child(

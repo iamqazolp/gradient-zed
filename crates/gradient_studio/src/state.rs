@@ -344,7 +344,6 @@ impl GradientStudioState {
                 self.mark_visual_changed();
             }
             Some(panel) => {
-                self.seamless = false;
                 self.enabled = true;
                 self.component_palettes
                     .set(panel, Some(CustomPalette { name, stops }));
@@ -376,7 +375,6 @@ impl GradientStudioState {
             Some(panel) => {
                 let mut next = self.resolved_stops(Some(panel));
                 next[stop_idx] = rgb;
-                self.seamless = false;
                 self.enabled = true;
                 self.component_palettes.set(
                     panel,

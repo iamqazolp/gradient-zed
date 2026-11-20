@@ -1345,7 +1345,6 @@ impl Render for GradientStudioPopover {
                                                 .hover(move |s| s.bg(glass_surface_hover))
                                                 .on_click(move |_, _, cx| {
                                                     update_state(cx, |s| {
-                                                        s.seamless = false;
                                                         s.toggle_panel(panel);
                                                     })
                                                 })
