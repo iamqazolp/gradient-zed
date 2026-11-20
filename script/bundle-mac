@@ -101,7 +101,19 @@ else
 fi
 
 # Generate the licenses first, so they can be baked into the binaries
-script/generate-licenses
+if [[ "${SKIP_LICENSES_IF_EXISTS:-0}" == "1" && -s assets/licenses.md ]]; then
+    echo "Using cached assets/licenses.md"
+else
+    script/generate-licenses
+fi
+# Normalize licenses.md mtime to newest license input so Cargo doesn't spuriously rebuild `assets`
+python3 - <<'PY'
+import os
+inputs = [p for p in ("Cargo.lock", "assets/themes/LICENSES", "assets/icons/LICENSES") if os.path.exists(p)]
+if inputs and os.path.exists("assets/licenses.md"):
+    ts = max(os.stat(p).st_mtime for p in inputs)
+    os.utime("assets/licenses.md", (ts, ts))
+PY
 
 rustup target add $target_triple
 

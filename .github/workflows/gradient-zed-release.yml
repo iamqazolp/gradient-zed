@@ -35,6 +35,46 @@ jobs:
     steps:
       - name: Checkout Gradient Zed
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Restore Source Timestamps (Keep Cargo Workspace Cache Fresh)
+        run: |
+          python3 - <<'PY'
+          import os, subprocess
+
+          raw = subprocess.check_output(
+              ["git", "-c", "core.quotepath=false", "log", "--format=%x1e%ct%x00", "--name-only", "-z"]
+          )
+          latest = {}
+          oldest_ts = None
+          for record in raw.split(b"\x1e"):
+              if not record:
+                  continue
+              parts = [p for p in record.split(b"\x00") if p]
+              ts = int(parts[0].strip())
+              if oldest_ts is None or ts < oldest_ts:
+                  oldest_ts = ts
+              for raw_path in parts[1:]:
+                  path = raw_path.lstrip(b"\n").decode("utf-8", "surrogateescape")
+                  if path:
+                      latest.setdefault(path, ts)
+
+          if oldest_ts is None:
+              raise SystemExit("No commits found in git log")
+
+          tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\x00")
+          updated = 0
+          for raw_path in tracked:
+              if not raw_path:
+                  continue
+              path = raw_path.decode("utf-8", "surrogateescape")
+              if os.path.exists(path) and not os.path.islink(path):
+                  ts = latest.get(path, oldest_ts)
+                  os.utime(path, (ts, ts))
+                  updated += 1
+          print(f"Restored git mtimes on {updated} tracked files (oldest_ts={oldest_ts}, touched={len(latest)})")
+          PY
 
       - name: Select Xcode with macOS SDK >= 26
         run: |
@@ -95,17 +135,18 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Using release tag: ${TAG}"
 
-      - name: Pre-build Modified Crates (Fast Fail)
-        env:
-          CARGO_INCREMENTAL: 0
-        run: |
-          cargo build --release --target aarch64-apple-darwin -p gpui_macos -p gradient_studio -p workspace
+      - name: Cache Generated Licenses
+        uses: actions/cache@v4
+        with:
+          path: assets/licenses.md
+          key: licenses-v1-${{ hashFiles('Cargo.lock', 'assets/themes/LICENSES', 'assets/icons/LICENSES') }}
 
       - name: Bundle Gradient Zed (macOS Apple Silicon)
         env:
           CARGO_INCREMENTAL: 0
           SKIP_REMOTE_SERVER: 1
           FAST_BUNDLE: 1
+          SKIP_LICENSES_IF_EXISTS: 1
         run: |
           ./script/bundle-mac aarch64-apple-darwin
 
