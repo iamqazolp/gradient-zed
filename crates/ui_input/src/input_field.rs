@@ -172,6 +172,29 @@ impl Render for InputField {
             focus_handle
         };
 
+        let gradient_on = ui::gradient_chrome::is_enabled(cx);
+        let is_focused = editor.focus_handle(cx).contains_focused(window, cx);
+        let gradient_frame = gradient_on
+            .then(|| {
+                let border_alpha = if has_error {
+                    0.35
+                } else if is_focused {
+                    0.94
+                } else {
+                    0.78
+                };
+                ui::gradient_chrome::render_static_solid_gradient_frame_canvas(
+                    None,
+                    8.0,
+                    1.5,
+                    0.0,
+                    0.0,
+                    border_alpha,
+                    cx,
+                )
+            })
+            .flatten();
+
         v_flex()
             .id(self.placeholder.clone())
             .w_full()
@@ -181,6 +204,7 @@ impl Render for InputField {
             })
             .child(
                 h_flex()
+                    .relative()
                     .track_focus(&configured_handle)
                     .min_w(self.min_width)
                     .min_h_8()
@@ -189,15 +213,19 @@ impl Render for InputField {
                     .py_1p5()
                     .flex_grow_1()
                     .text_color(style.text_color)
-                    .rounded_md()
-                    .bg(style.background_color)
-                    .border_1()
-                    .border_color(style.border_color)
-                    .when(
-                        editor.focus_handle(cx).contains_focused(window, cx),
-                        |this| this.border_color(theme_color.border_focused),
-                    )
-                    .when(has_error, |this| this.border_color(error_border))
+                    .rounded_lg()
+                    .children(gradient_frame)
+                    .when(!gradient_on, |this| {
+                        this.bg(style.background_color)
+                            .border_1()
+                            .border_color(style.border_color)
+                            .when(is_focused, |this| {
+                                this.border_color(theme_color.border_focused)
+                            })
+                    })
+                    .when(has_error, |this| {
+                        this.border_1().border_color(error_border)
+                    })
                     .when_some(self.start_icon, |this, icon| {
                         this.gap_1()
                             .child(Icon::new(icon).size(IconSize::Small).color(Color::Muted))

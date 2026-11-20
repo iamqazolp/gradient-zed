@@ -497,11 +497,11 @@ fn render_cat_numbered_code_block(
         .group("read-file-code-block")
         .relative()
         .w_full()
-        .rounded_lg()
+        .rounded_xl()
         .whitespace_nowrap();
     container.style().refine(&markdown_style.code_block);
     let gradient_code_frame = ui::gradient_chrome::render_gradient_frame_canvas(
-        None, 8.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
+        None, 12.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
     );
 
     // `overflow_x_scroll` only actually scrolls when the container is laid out
@@ -5689,7 +5689,7 @@ impl ThreadView {
             );
 
         let composer_body = if gradient_on {
-            workspace::gradient_studio::wrap_gradient_frame(
+            workspace::gradient_studio::wrap_static_solid_gradient_frame(
                 Some(workspace::gradient_studio::PanelRegion::RightDock),
                 12.0,
                 1.5,
@@ -7554,8 +7554,7 @@ impl ThreadView {
                             .relative()
                             .child({
                                 let use_gradient_frame = workspace::gradient_studio::is_enabled(cx)
-                                    && !is_subagent
-                                    && !editing;
+                                    && !is_subagent;
                                 if use_gradient_frame {
                                     let inner_msg = div()
                                         .py_3()
@@ -7564,14 +7563,25 @@ impl ThreadView {
                                         .text_xs()
                                         .child(editor.clone().into_any_element())
                                         .into_any_element();
-                                    workspace::gradient_studio::wrap_gradient_frame(
-                                        Some(workspace::gradient_studio::PanelRegion::RightDock),
-                                        10.0,
-                                        1.5,
-                                        false,
-                                        inner_msg,
-                                        cx,
-                                    )
+                                    if editing {
+                                        workspace::gradient_studio::wrap_static_solid_gradient_frame(
+                                            Some(workspace::gradient_studio::PanelRegion::RightDock),
+                                            10.0,
+                                            1.5,
+                                            false,
+                                            inner_msg,
+                                            cx,
+                                        )
+                                    } else {
+                                        workspace::gradient_studio::wrap_gradient_frame(
+                                            Some(workspace::gradient_studio::PanelRegion::RightDock),
+                                            10.0,
+                                            1.5,
+                                            false,
+                                            inner_msg,
+                                            cx,
+                                        )
+                                    }
                                 } else {
                                     div()
                                         .py_3()
@@ -9579,14 +9589,28 @@ impl ThreadView {
         })
         .command_slot(command_element);
 
+        let terminal_card_frame = (layout == ToolCallLayout::Standalone)
+            .then(|| {
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None, 12.0, 1.25, 0.0, 0.0, false, 0.05, 0.76, cx,
+                )
+            })
+            .flatten();
+        let has_terminal_card_frame = terminal_card_frame.is_some();
+
         v_flex()
             .when(layout == ToolCallLayout::Standalone, |this| {
-                this.my_1p5()
+                this.relative()
+                    .my_1p5()
                     .mx_5()
-                    .border_1()
-                    .when(tool_failed || command_failed, |card| card.border_dashed())
-                    .border_color(border_color)
-                    .rounded_md()
+                    .rounded_xl()
+                    .children(terminal_card_frame)
+                    .when(!has_terminal_card_frame, |this| {
+                        this.border_1()
+                            .when(tool_failed || command_failed, |card| card.border_dashed())
+                            .border_color(border_color)
+                            .rounded_md()
+                    })
             })
             .overflow_hidden()
             .child(header)
@@ -10297,17 +10321,32 @@ impl ThreadView {
             })
             .children(tool_output_display);
 
+        let tool_card_frame = (use_card_layout
+            && !matches!(layout, ToolCallLayout::Embedded | ToolCallLayout::Floating))
+        .then(|| {
+            ui::gradient_chrome::render_gradient_frame_canvas(
+                None, 12.0, 1.25, 0.0, 0.0, false, 0.05, 0.76, cx,
+            )
+        })
+        .flatten();
+        let has_tool_card_frame = tool_card_frame.is_some();
+
         v_flex()
             .map(|this| {
                 if matches!(layout, ToolCallLayout::Embedded | ToolCallLayout::Floating) {
                     this
                 } else if use_card_layout {
-                    this.my_1p5()
-                        .rounded_md()
-                        .border_1()
-                        .when(failed_or_canceled, |this| this.border_dashed())
-                        .border_color(self.tool_card_border_color(cx))
-                        .bg(cx.theme().colors().editor_background)
+                    this.relative()
+                        .my_1p5()
+                        .rounded_xl()
+                        .children(tool_card_frame)
+                        .when(!has_tool_card_frame, |this| {
+                            this.rounded_md()
+                                .border_1()
+                                .when(failed_or_canceled, |this| this.border_dashed())
+                                .border_color(self.tool_card_border_color(cx))
+                                .bg(cx.theme().colors().editor_background)
+                        })
                         .overflow_hidden()
                 } else {
                     this.my_1()
@@ -12795,10 +12834,14 @@ impl ThreadView {
     }
 
     fn tool_card_header_bg(&self, cx: &Context<Self>) -> Hsla {
-        cx.theme()
-            .colors()
-            .element_background
-            .blend(cx.theme().colors().editor_foreground.opacity(0.025))
+        if ui::gradient_chrome::is_enabled(cx) {
+            cx.theme().colors().editor_foreground.opacity(0.04)
+        } else {
+            cx.theme()
+                .colors()
+                .element_background
+                .blend(cx.theme().colors().editor_foreground.opacity(0.025))
+        }
     }
 
     fn tool_card_border_color(&self, cx: &Context<Self>) -> Hsla {

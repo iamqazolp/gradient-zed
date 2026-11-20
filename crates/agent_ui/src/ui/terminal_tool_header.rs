@@ -147,11 +147,14 @@ impl RenderOnce for TerminalToolHeader {
 
         let child_id = |name: &str| format!("terminal-tool-{name}-{id}");
 
-        let header_bg = cx
-            .theme()
-            .colors()
-            .element_background
-            .blend(cx.theme().colors().editor_foreground.opacity(0.025));
+        let header_bg = if ui::gradient_chrome::is_enabled(cx) {
+            cx.theme().colors().editor_foreground.opacity(0.04)
+        } else {
+            cx.theme()
+                .colors()
+                .element_background
+                .blend(cx.theme().colors().editor_foreground.opacity(0.025))
+        };
 
         let header_row = h_flex()
             .id(child_id("header"))

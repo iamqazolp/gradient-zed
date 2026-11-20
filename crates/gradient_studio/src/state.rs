@@ -156,6 +156,7 @@ struct PersistedGradientStudio {
     favorites: Vec<String>,
     fav_only: bool,
     base_angle: f32,
+    breathe_paused_delta: Option<f32>,
 }
 
 impl Default for PersistedGradientStudio {
@@ -175,6 +176,7 @@ impl Default for PersistedGradientStudio {
             favorites: Vec::new(),
             fav_only: false,
             base_angle: 135.0,
+            breathe_paused_delta: None,
         }
     }
 }
@@ -196,6 +198,7 @@ pub struct GradientStudioState {
     pub base_angle: f32,
     pub history: Vec<(String, FourStops, f32)>,
     pub breathe_origin: Instant,
+    pub breathe_paused_delta: Option<f32>,
     visual_revision: u64,
     dirty: bool,
     save_task: Option<Task<()>>,
@@ -230,6 +233,7 @@ impl GradientStudioState {
             base_angle: p.base_angle,
             history: Vec::new(),
             breathe_origin: Instant::now(),
+            breathe_paused_delta: p.breathe_paused_delta.map(|d| d.rem_euclid(1.0)),
             visual_revision: 0,
             dirty: false,
             save_task: None,
@@ -252,6 +256,11 @@ impl GradientStudioState {
             favorites: self.favorites.clone(),
             fav_only: self.fav_only,
             base_angle: self.base_angle,
+            breathe_paused_delta: if self.breathe {
+                self.current_breathe_delta()
+            } else {
+                self.breathe_paused_delta
+            },
         }
     }
 
@@ -341,6 +350,8 @@ impl GradientStudioState {
                 self.palette_name = name;
                 self.stops = stops;
                 self.enabled = true;
+                self.breathe_paused_delta = None;
+                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
             Some(panel) => {
@@ -350,6 +361,8 @@ impl GradientStudioState {
                 if !self.panels.is_enabled(panel) {
                     self.panels.toggle(panel);
                 }
+                self.breathe_paused_delta = None;
+                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
         }
@@ -370,6 +383,8 @@ impl GradientStudioState {
                 self.stops = next;
                 self.palette_name = "Custom Mix".to_string();
                 self.enabled = true;
+                self.breathe_paused_delta = None;
+                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
             Some(panel) => {
@@ -383,6 +398,8 @@ impl GradientStudioState {
                         stops: next,
                     }),
                 );
+                self.breathe_paused_delta = None;
+                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
         }
@@ -489,6 +506,8 @@ impl GradientStudioState {
             self.stops = stops;
             self.base_angle = angle;
             self.enabled = true;
+            self.breathe_paused_delta = None;
+            self.breathe_origin = Instant::now();
             self.mark_visual_changed();
             true
         } else {
@@ -501,35 +520,72 @@ impl GradientStudioState {
         self.mark_visual_changed();
     }
 
-    pub fn toggle_breathe(&mut self) {
-        self.breathe = !self.breathe;
+    pub fn current_cycle_secs(&self) -> f32 {
+        let speed_mult = (self.breathe_cfg.speed_pct / 100.0).clamp(0.25, 2.5);
+        (18.0 / speed_mult).clamp(5.0, 72.0)
+    }
+
+    pub fn current_breathe_delta(&self) -> Option<f32> {
+        let any_motion = self.breathe_cfg.full_wave
+            || self.breathe_cfg.pulse
+            || self.breathe_cfg.shimmer
+            || self.breathe_cfg.auto_morph;
+        if !any_motion {
+            return None;
+        }
         if self.breathe {
+            let base = self.breathe_paused_delta.unwrap_or(0.0);
+            let elapsed = self.breathe_origin.elapsed().as_secs_f32() / self.current_cycle_secs();
+            Some((base + elapsed).rem_euclid(1.0))
+        } else {
+            self.breathe_paused_delta
+        }
+    }
+
+    pub fn toggle_breathe(&mut self) {
+        if self.breathe {
+            self.breathe_paused_delta = self.current_breathe_delta();
+            self.breathe = false;
+        } else {
             self.breathe_origin = Instant::now();
+            self.breathe = true;
         }
         self.mark_visual_changed();
     }
 
     pub fn toggle_breathe_wave(&mut self) {
         self.breathe_cfg.full_wave = !self.breathe_cfg.full_wave;
-        self.breathe = true;
+        if !self.breathe {
+            self.breathe_origin = Instant::now();
+            self.breathe = true;
+        }
         self.mark_visual_changed();
     }
 
     pub fn toggle_breathe_pulse(&mut self) {
         self.breathe_cfg.pulse = !self.breathe_cfg.pulse;
-        self.breathe = true;
+        if !self.breathe {
+            self.breathe_origin = Instant::now();
+            self.breathe = true;
+        }
         self.mark_visual_changed();
     }
 
     pub fn toggle_breathe_shimmer(&mut self) {
         self.breathe_cfg.shimmer = !self.breathe_cfg.shimmer;
-        self.breathe = true;
+        if !self.breathe {
+            self.breathe_origin = Instant::now();
+            self.breathe = true;
+        }
         self.mark_visual_changed();
     }
 
     pub fn toggle_breathe_auto_morph(&mut self) {
         self.breathe_cfg.auto_morph = !self.breathe_cfg.auto_morph;
-        self.breathe = true;
+        if !self.breathe {
+            self.breathe_origin = Instant::now();
+            self.breathe = true;
+        }
         self.mark_visual_changed();
     }
 
@@ -537,6 +593,10 @@ impl GradientStudioState {
         let next = ((pct / 5.0).round() * 5.0).clamp(25.0, 250.0);
         if (next - self.breathe_cfg.speed_pct).abs() < f32::EPSILON {
             return;
+        }
+        if self.breathe {
+            self.breathe_paused_delta = self.current_breathe_delta();
+            self.breathe_origin = Instant::now();
         }
         self.breathe_cfg.speed_pct = next;
         self.mark_visual_changed();
@@ -556,6 +616,8 @@ impl GradientStudioState {
         self.push_history();
         self.stops.rotate_left(1);
         self.enabled = true;
+        self.breathe_paused_delta = None;
+        self.breathe_origin = Instant::now();
         self.mark_visual_changed();
     }
 

@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use gpui::{
     AnyElement, App, Background, BorderStyle, Bounds, Corners, Edges, Global, Hsla, IntoElement,
-    Pixels, Styled, Window, canvas, linear_color_stop, linear_gradient, point, px, quad, size,
-    transparent_black,
+    Pixels, Styled, Window, canvas, linear_color_stop, linear_gradient, outline, point, px, quad,
+    size, transparent_black,
 };
 use theme::{ActiveTheme as _, Appearance};
 
@@ -27,6 +27,7 @@ pub struct GradientChromeState {
     pub stops: FourStops,
     pub breathe: bool,
     pub breathe_origin: Instant,
+    pub breathe_paused_delta: Option<f32>,
     pub breathe_cycle_secs: f32,
     pub breathe_pulse: bool,
     pub breathe_shimmer: bool,
@@ -46,6 +47,7 @@ impl Default for GradientChromeState {
             stops: DEFAULT_STOPS,
             breathe: false,
             breathe_origin: Instant::now(),
+            breathe_paused_delta: None,
             breathe_cycle_secs: 18.0,
             breathe_pulse: true,
             breathe_shimmer: true,
@@ -110,12 +112,17 @@ pub fn shimmer_shift_stops(stops: FourStops, shift: f32) -> FourStops {
 impl GradientChromeState {
     pub fn live_phase_delta(&self, window_active: bool) -> Option<f32> {
         let any_motion = self.breathe_pulse || self.breathe_shimmer || self.breathe_auto_morph;
-        if !self.breathe || !any_motion || !window_active {
+        if !any_motion {
             return None;
         }
-        let cycle = self.breathe_cycle_secs.clamp(5.0, 72.0);
-        let elapsed = self.breathe_origin.elapsed().as_secs_f32();
-        Some((elapsed / cycle).rem_euclid(1.0))
+        if self.breathe && window_active {
+            let cycle = self.breathe_cycle_secs.clamp(5.0, 72.0);
+            let base = self.breathe_paused_delta.unwrap_or(0.0);
+            let elapsed = self.breathe_origin.elapsed().as_secs_f32() / cycle;
+            Some((base + elapsed).rem_euclid(1.0))
+        } else {
+            self.breathe_paused_delta
+        }
     }
 
     pub fn live_stops_and_pulse(
@@ -413,16 +420,98 @@ pub fn paint_rounded_gradient_frame(
     }
 }
 
-/// Mounts an absolute `inset_0()` GPU-SDF rounded breathing gradient frame canvas as the FIRST
-/// child of any `relative()` container (User Prompt, Chat Composer, Code Box, Opened Thread,
-/// Opened File, Active Tab, Buttons). Automatically breathes in lockstep at 24 FPS!
-pub fn render_gradient_frame_canvas(
+/// Paints a scrollbar thumb with a directional 4-stop gradient (180° vertical for vertical
+/// scrollbars, 90° horizontal for horizontal scrollbars) when Gradient Chrome is active.
+pub fn paint_scrollbar_thumb(
+    bounds: Bounds<Pixels>,
+    horizontal: bool,
+    opacity_mult: f32,
+    radius_px: f32,
+    window: &mut Window,
+    cx: &App,
+) -> bool {
+    let Some(state) = cx.try_global::<GradientChromeState>() else {
+        return false;
+    };
+    if !state.enabled {
+        return false;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let a = (opacity_mult * pulse).clamp(0.0, 0.96);
+    if a <= 0.001 {
+        return true;
+    }
+    paint_rounded_four_stop_band(bounds, px(radius_px), stops, [a, a, a, a], horizontal, window);
+    true
+}
+
+/// Returns a directional gradient `Background` for animated text cursor paths (`Bar`/`Block` =
+/// vertical, `Underline` = horizontal), preserving `color_alpha` for blinking and dimming.
+pub fn cursor_path_background(
+    is_underline: bool,
+    color_alpha: f32,
+    window: &Window,
+    cx: &App,
+) -> Option<Background> {
+    let state = cx.try_global::<GradientChromeState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let (stops, _) = state.live_stops_and_pulse(None, window.is_window_active());
+    let a = color_alpha.clamp(0.0, 1.0);
+    let angle = if is_underline { 90.0 } else { 180.0 };
+    Some(linear_gradient(
+        angle,
+        linear_color_stop(rgb_to_hsla(stops[0], a), 0.0),
+        linear_color_stop(rgb_to_hsla(stops[3], a), 1.0),
+    ))
+}
+
+/// Paints a static text cursor (`Bar`/`Block` = vertical 4-color gradient, `Underline` = horizontal
+/// 4-color gradient, `Hollow` = palette accent outline), preserving `color_alpha` for blinking.
+pub fn paint_text_cursor_quad(
+    bounds: Bounds<Pixels>,
+    is_underline: bool,
+    is_hollow: bool,
+    color_alpha: f32,
+    radius_px: f32,
+    window: &mut Window,
+    cx: &App,
+) -> bool {
+    let Some(state) = cx.try_global::<GradientChromeState>() else {
+        return false;
+    };
+    if !state.enabled {
+        return false;
+    }
+    let a = color_alpha.clamp(0.0, 1.0);
+    if a <= 0.001 {
+        return true;
+    }
+    let (stops, _) = state.live_stops_and_pulse(None, window.is_window_active());
+    if is_hollow {
+        window.paint_quad(outline(bounds, rgb_to_hsla(stops[0], a), BorderStyle::Solid));
+    } else {
+        paint_rounded_four_stop_band(
+            bounds,
+            px(radius_px),
+            stops,
+            [a, a, a, a],
+            is_underline,
+            window,
+        );
+    }
+    true
+}
+
+fn render_gradient_frame_canvas_inner(
     override_stops: Option<FourStops>,
     radius_px: f32,
     border_px: f32,
     inset_x_px: f32,
     inset_y_px: f32,
     solid_inner: bool,
+    breathing: bool,
     inner_wash_alpha: f32,
     border_alpha: f32,
     cx: &App,
@@ -430,12 +519,6 @@ pub fn render_gradient_frame_canvas(
     if !is_enabled(cx) {
         return None;
     }
-
-    let solid_code_bg = if solid_inner {
-        solid_code_block_background(cx)
-    } else {
-        canvas_background(cx)
-    };
 
     Some(
         canvas(
@@ -457,18 +540,38 @@ pub fn render_gradient_frame_canvas(
                         px((f32::from(bounds.size.height) - inset_y_px * 2.0).max(0.0)),
                     ),
                 };
-                let (stops, pulse) =
-                    state.live_stops_and_pulse(override_stops, window.is_window_active());
-                let inner_bg = if solid_inner {
-                    solid_code_bg
+                let (stops, pulse) = if breathing {
+                    state.live_stops_and_pulse(override_stops, window.is_window_active())
                 } else {
-                    state
+                    (override_stops.unwrap_or(state.stops), 1.0)
+                };
+                let (inner_bg, base_wash) = if solid_inner && !breathing {
+                    let mut solid = state.canvas_bg;
+                    solid.a = 1.0;
+                    (solid, 0.0)
+                } else if solid_inner {
+                    // Frosted translucent card for code/mermaid blocks so they don't look like
+                    // glaring opaque white slabs while preserving crisp syntax contrast.
+                    let frosted = state
                         .canvas_bg
-                        .opacity(if state.is_light { 0.82 } else { 0.80 })
+                        .opacity(if state.is_light { 0.74 } else { 0.78 });
+                    let wash = if inner_wash_alpha > 0.0 {
+                        inner_wash_alpha
+                    } else {
+                        0.06
+                    };
+                    (frosted, wash)
+                } else {
+                    (
+                        state
+                            .canvas_bg
+                            .opacity(if state.is_light { 0.78 } else { 0.78 }),
+                        inner_wash_alpha,
+                    )
                 };
                 let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
-                let w_alpha = if inner_wash_alpha > 0.0 {
-                    (inner_wash_alpha * pulse).clamp(0.0, 0.45)
+                let w_alpha = if base_wash > 0.0 {
+                    (base_wash * pulse).clamp(0.0, 0.45)
                 } else {
                     0.0
                 };
@@ -487,6 +590,59 @@ pub fn render_gradient_frame_canvas(
         .absolute()
         .inset_0()
         .into_any_element(),
+    )
+}
+
+/// Mounts an absolute `inset_0()` GPU-SDF rounded breathing gradient frame canvas as the FIRST
+/// child of any `relative()` container (Code Box, Opened Thread, Opened File, Active Tab, Buttons).
+/// Automatically breathes in lockstep at 24 FPS!
+pub fn render_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    solid_inner: bool,
+    inner_wash_alpha: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    render_gradient_frame_canvas_inner(
+        override_stops,
+        radius_px,
+        border_px,
+        inset_x_px,
+        inset_y_px,
+        solid_inner,
+        true,
+        inner_wash_alpha,
+        border_alpha,
+        cx,
+    )
+}
+
+/// Mounts a **non-breathing**, rounded 4-color gradient frame with a **solid** inner background
+/// (`canvas_bg`, alpha 1.0, zero inner wash) for textboxes and search inputs.
+pub fn render_static_solid_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    render_gradient_frame_canvas_inner(
+        override_stops,
+        radius_px,
+        border_px,
+        inset_x_px,
+        inset_y_px,
+        true,
+        false,
+        0.0,
+        border_alpha,
+        cx,
     )
 }
 

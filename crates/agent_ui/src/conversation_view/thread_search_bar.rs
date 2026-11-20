@@ -801,16 +801,24 @@ impl Render for ThreadSearchBar {
             .on_action(cx.listener(Self::focus_search))
             .w_full()
             .gap_2()
-            .child(
+            .child({
+                let gradient_frame = ui::gradient_chrome::render_static_solid_gradient_frame_canvas(
+                    None, 8.0, 1.5, 0.0, 0.0, 0.84, cx,
+                );
+                let has_gradient = gradient_frame.is_some();
                 h_flex()
+                    .relative()
                     .min_h_8()
                     .min_w_32()
                     .flex_1()
                     .px_1p5()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.editor_background)
-                    .rounded_md()
+                    .rounded_lg()
+                    .children(gradient_frame)
+                    .when(!has_gradient, |this| {
+                        this.border_1()
+                            .border_color(theme.border)
+                            .bg(theme.editor_background)
+                    })
                     .child(div().px_1().flex_1().child(render_query_input(
                         &self.query_editor,
                         in_error_state,
@@ -836,7 +844,7 @@ impl Render for ThreadSearchBar {
                                 focus_handle.clone(),
                             )),
                     ),
-            )
+            })
             .child(
                 h_flex()
                     .flex_none()

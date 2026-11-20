@@ -1581,18 +1581,47 @@ impl<T: ScrollableHandle> Element for ScrollbarElement<T> {
                         }
                     }
 
-                    window.paint_quad(quad(
+                    let gradient_alpha = {
+                        let base = match thumb_state {
+                            ThumbState::Dragging(dragged_axis, _) if dragged_axis == axis => 0.95,
+                            ThumbState::Hover(hovered_axis) if hovered_axis == axis => 0.85,
+                            _ => 0.62,
+                        };
+                        if !hovered && let Some(fade) = autohide_fade {
+                            base * (1.0 - fade.clamp(0.0, 1.0))
+                        } else {
+                            base
+                        }
+                    };
+                    let gradient_radius = match style {
+                        ScrollbarStyle::Regular => (f32::from(
+                            thumb_bounds.size.width.min(thumb_bounds.size.height),
+                        ) * 0.5)
+                            .max(3.0),
+                        ScrollbarStyle::Editor => 3.0,
+                    };
+
+                    if !crate::gradient_chrome::paint_scrollbar_thumb(
                         *thumb_bounds,
-                        match style {
-                            ScrollbarStyle::Regular => Corners::all(Pixels::MAX)
-                                .clamp_radii_for_quad_size(thumb_bounds.size),
-                            ScrollbarStyle::Editor => Corners::default(),
-                        },
-                        thumb_color,
-                        Edges::default(),
-                        Hsla::transparent_black(),
-                        BorderStyle::default(),
-                    ));
+                        matches!(axis, ScrollbarAxis::Horizontal),
+                        gradient_alpha,
+                        gradient_radius,
+                        window,
+                        cx,
+                    ) {
+                        window.paint_quad(quad(
+                            *thumb_bounds,
+                            match style {
+                                ScrollbarStyle::Regular => Corners::all(Pixels::MAX)
+                                    .clamp_radii_for_quad_size(thumb_bounds.size),
+                                ScrollbarStyle::Editor => Corners::default(),
+                            },
+                            thumb_color,
+                            Edges::default(),
+                            Hsla::transparent_black(),
+                            BorderStyle::default(),
+                        ));
+                    }
 
                     if thumb_state.is_dragging() {
                         window.set_window_cursor_style(CursorStyle::Arrow);

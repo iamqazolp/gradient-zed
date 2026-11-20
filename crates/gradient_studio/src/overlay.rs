@@ -227,14 +227,12 @@ pub fn render_gradient_divider(
     Some(strip.child(edge_canvas).into_any_element())
 }
 
-/// Wraps `content` in VS Code's signature GPU-SDF rounded, live-breathing 4-color gradient border
-/// frame (`1.5px` prism perimeter around a frosted translucent glass surface with crisp content on
-/// top).
-pub fn wrap_gradient_frame(
+fn wrap_gradient_frame_inner(
     region: Option<PanelRegion>,
     radius_px: f32,
     border_px: f32,
     fill_height: bool,
+    static_solid: bool,
     content: AnyElement,
     cx: &App,
 ) -> AnyElement {
@@ -244,20 +242,33 @@ pub fn wrap_gradient_frame(
     let custom_override =
         region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
     let is_light = cx.theme().appearance() == Appearance::Light;
-    let inner_wash_alpha = if is_light { 0.10 } else { 0.14 };
     let border_alpha = if is_light { 0.88 } else { 0.84 };
 
-    let Some(frame_canvas) = ui::gradient_chrome::render_gradient_frame_canvas(
-        custom_override,
-        radius_px,
-        border_px,
-        0.0,
-        0.0,
-        false,
-        inner_wash_alpha,
-        border_alpha,
-        cx,
-    ) else {
+    let frame_canvas = if static_solid {
+        ui::gradient_chrome::render_static_solid_gradient_frame_canvas(
+            custom_override,
+            radius_px,
+            border_px,
+            0.0,
+            0.0,
+            border_alpha,
+            cx,
+        )
+    } else {
+        let inner_wash_alpha = if is_light { 0.10 } else { 0.14 };
+        ui::gradient_chrome::render_gradient_frame_canvas(
+            custom_override,
+            radius_px,
+            border_px,
+            0.0,
+            0.0,
+            false,
+            inner_wash_alpha,
+            border_alpha,
+            cx,
+        )
+    };
+    let Some(frame_canvas) = frame_canvas else {
         return content;
     };
 
@@ -281,6 +292,33 @@ pub fn wrap_gradient_frame(
     outer.into_any_element()
 }
 
+/// Wraps `content` in VS Code's signature GPU-SDF rounded, live-breathing 4-color gradient border
+/// frame (`1.5px` prism perimeter around a frosted translucent glass surface with crisp content on
+/// top).
+pub fn wrap_gradient_frame(
+    region: Option<PanelRegion>,
+    radius_px: f32,
+    border_px: f32,
+    fill_height: bool,
+    content: AnyElement,
+    cx: &App,
+) -> AnyElement {
+    wrap_gradient_frame_inner(region, radius_px, border_px, fill_height, false, content, cx)
+}
+
+/// Wraps `content` in a **non-breathing**, rounded 4-color gradient border frame with a **solid**
+/// interior background so textboxes and composers stay crisp and calm while typing.
+pub fn wrap_static_solid_gradient_frame(
+    region: Option<PanelRegion>,
+    radius_px: f32,
+    border_px: f32,
+    fill_height: bool,
+    content: AnyElement,
+    cx: &App,
+) -> AnyElement {
+    wrap_gradient_frame_inner(region, radius_px, border_px, fill_height, true, content, cx)
+}
+
 /// Renders a decorative 4-corner radial aurora backdrop inside the Gradient Studio card itself.
 pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyElement {
     let base_scale = if is_light { 0.85 } else { 1.05 };
@@ -295,6 +333,45 @@ pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyEleme
         false,
     )
     .into_any_element()
+}
+
+fn evaluate_aurora_frame(
+    delta: f32,
+    stops: FourStops,
+    base_angle: f32,
+    base_scale: f32,
+    cfg: BreatheConfig,
+) -> (FourStops, f32, f32, [(f32, f32); 4]) {
+    let phase = delta * TAU;
+    let focal = compute_focal_points(Some(phase), cfg);
+    let pulse_mult = if cfg.pulse {
+        1.0 + 0.18 * (phase * 2.0).sin()
+    } else {
+        1.0
+    };
+    let angle = if cfg.shimmer {
+        (base_angle + 28.0 * phase.sin()).rem_euclid(360.0)
+    } else {
+        base_angle
+    };
+    let mut active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
+        let count = CURATED_PALETTES.len().min(12);
+        let pos = delta * count as f32;
+        let idx_a = (pos.floor() as usize) % count;
+        let idx_b = (idx_a + 1) % count;
+        let frac = pos - pos.floor();
+        lerp_stops(
+            CURATED_PALETTES[idx_a].stops,
+            CURATED_PALETTES[idx_b].stops,
+            frac,
+        )
+    } else {
+        stops
+    };
+    if cfg.shimmer {
+        active_stops = ui::gradient_chrome::shimmer_shift_stops(active_stops, delta * 4.0);
+    }
+    (active_stops, angle, base_scale * pulse_mult, focal)
 }
 
 fn render_aurora_element(
@@ -315,6 +392,7 @@ fn render_aurora_element(
     let cfg = state.breathe_cfg;
     let any_motion = cfg.full_wave || cfg.pulse || cfg.shimmer || cfg.auto_morph;
     let breathe_active = state.breathe && any_motion && window.is_window_active();
+    let base_delta = state.breathe_paused_delta.unwrap_or(0.0);
 
     if breathe_active {
         let anim_id = match (region, viewport_locked) {
@@ -326,15 +404,15 @@ fn render_aurora_element(
             (Some(PanelRegion::BottomDock), false) => "aurora-breathe-bottom",
             (Some(PanelRegion::Bars), false) => "aurora-breathe-bars",
         };
-        let speed_mult = (cfg.speed_pct / 100.0).clamp(0.25, 2.5);
-        let cycle_secs = (18.0 / speed_mult).clamp(5.0, 72.0);
+        let cycle_secs = state.current_cycle_secs();
         let breathe_origin = state.breathe_origin;
-        let focal_static = compute_focal_points(None, cfg);
+        let (init_stops, init_angle, init_scale, init_focal) =
+            evaluate_aurora_frame(base_delta, stops, base_angle, base_scale, cfg);
         build_aurora_canvas(
-            stops,
-            base_angle,
-            base_scale,
-            focal_static,
+            init_stops,
+            init_angle,
+            init_scale,
+            init_focal,
             shape,
             opaque_base,
             viewport_locked,
@@ -345,49 +423,35 @@ fn render_aurora_element(
                 .repeat_synced()
                 .with_max_fps(24.0),
             move |_prev, _anim_delta| {
-                // Phase-locked to `breathe_origin` so background aurora, frames, dividers,
-                // buttons, tabs, threads, context circle, and text selections breathe as one.
+                // Phase-locked to `breathe_origin` + `base_delta` so pausing and resuming
+                // never jumps color, focal drift, or pulse.
                 let delta =
-                    (breathe_origin.elapsed().as_secs_f32() / cycle_secs).rem_euclid(1.0);
-                let phase = delta * TAU;
-                let focal = compute_focal_points(Some(phase), cfg);
-                let pulse_mult = if cfg.pulse {
-                    1.0 + 0.18 * (phase * 2.0).sin()
-                } else {
-                    1.0
-                };
-                let angle = if cfg.shimmer {
-                    (base_angle + 28.0 * phase.sin()).rem_euclid(360.0)
-                } else {
-                    base_angle
-                };
-                let mut active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
-                    let count = CURATED_PALETTES.len().min(12);
-                    let pos = delta * count as f32;
-                    let idx_a = (pos.floor() as usize) % count;
-                    let idx_b = (idx_a + 1) % count;
-                    let frac = pos - pos.floor();
-                    lerp_stops(
-                        CURATED_PALETTES[idx_a].stops,
-                        CURATED_PALETTES[idx_b].stops,
-                        frac,
-                    )
-                } else {
-                    stops
-                };
-                if cfg.shimmer {
-                    active_stops = ui::gradient_chrome::shimmer_shift_stops(active_stops, delta * 4.0);
-                }
+                    (base_delta + breathe_origin.elapsed().as_secs_f32() / cycle_secs).rem_euclid(1.0);
+                let (active_stops, angle, scale, focal) =
+                    evaluate_aurora_frame(delta, stops, base_angle, base_scale, cfg);
                 build_aurora_canvas(
                     active_stops,
                     angle,
-                    base_scale * pulse_mult,
+                    scale,
                     focal,
                     shape,
                     opaque_base,
                     viewport_locked,
                 )
             },
+        )
+        .into_any_element()
+    } else if let Some(frozen_delta) = state.breathe_paused_delta.filter(|_| any_motion) {
+        let (active_stops, angle, scale, focal) =
+            evaluate_aurora_frame(frozen_delta, stops, base_angle, base_scale, cfg);
+        build_aurora_canvas(
+            active_stops,
+            angle,
+            scale,
+            focal,
+            shape,
+            opaque_base,
+            viewport_locked,
         )
         .into_any_element()
     } else {

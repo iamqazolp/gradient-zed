@@ -2923,10 +2923,8 @@ impl Element for MarkdownElement {
                                         .group("code_block")
                                         .relative()
                                         .w_full()
-                                        .when(
-                                            scroll_handle.is_some() || gradient_chrome_on,
-                                            |this| this.rounded_lg(),
-                                        );
+                                        .when(scroll_handle.is_some(), |this| this.rounded_lg())
+                                        .when(gradient_chrome_on, |this| this.rounded_xl());
 
                                     if let CodeBlockRenderer::Default { border: true, .. } =
                                         &self.code_block_renderer
@@ -2945,7 +2943,7 @@ impl Element for MarkdownElement {
 
                                     if let Some(frame) =
                                         ui::gradient_chrome::render_gradient_frame_canvas(
-                                            None, 8.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
+                                            None, 12.0, 1.5, 0.0, 0.0, true, 0.0, 0.84, cx,
                                         )
                                     {
                                         parent_container = parent_container.child(frame);

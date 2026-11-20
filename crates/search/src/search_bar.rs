@@ -70,23 +70,34 @@ pub(super) fn render_local_action_button<T: 'static, A: Action>(
     })
 }
 
-pub(crate) fn input_base_styles(border_color: Hsla, map: impl FnOnce(Div) -> Div) -> Div {
+pub(crate) fn input_base_styles(
+    border_color: Hsla,
+    map: impl FnOnce(Div) -> Div,
+    cx: &App,
+) -> Div {
+    let gradient_frame = ui::gradient_chrome::render_static_solid_gradient_frame_canvas(
+        None, 8.0, 1.5, 0.0, 0.0, 0.84, cx,
+    );
+    let has_gradient = gradient_frame.is_some();
     h_flex()
+        .relative()
         .map(map)
         .min_w_32()
         .min_h_8()
         .pl_2()
         .pr_1()
-        .border_1()
-        .border_color(border_color)
-        .rounded_md()
+        .rounded_lg()
+        .children(gradient_frame)
+        .when(!has_gradient, |this| {
+            this.border_1().border_color(border_color)
+        })
 }
 pub(crate) fn filter_search_results_input(
     border_color: Hsla,
     map: impl FnOnce(Div) -> Div,
     cx: &App,
 ) -> Div {
-    input_base_styles(border_color, map).pl_0().child(
+    input_base_styles(border_color, map, cx).pl_0().child(
         h_flex()
             .mr_2()
             .px_2()

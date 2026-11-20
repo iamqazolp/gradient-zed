@@ -6210,25 +6210,39 @@ impl EditorElement {
                     }
 
                     if let Some(thumb_bounds) = scrollbar_layout.thumb_bounds {
-                        let scrollbar_thumb_color = match scrollbar_layout.thumb_state {
-                            ScrollbarThumbState::Dragging => {
-                                cx.theme().colors().scrollbar_thumb_active_background
-                            }
-                            ScrollbarThumbState::Hovered => {
-                                cx.theme().colors().scrollbar_thumb_hover_background
-                            }
-                            ScrollbarThumbState::Idle => {
-                                cx.theme().colors().scrollbar_thumb_background
-                            }
+                        let gradient_alpha = match scrollbar_layout.thumb_state {
+                            ScrollbarThumbState::Dragging => 0.95,
+                            ScrollbarThumbState::Hovered => 0.85,
+                            ScrollbarThumbState::Idle => 0.62,
                         };
-                        window.paint_quad(quad(
+                        if !ui::gradient_chrome::paint_scrollbar_thumb(
                             thumb_bounds,
-                            Corners::default(),
-                            scrollbar_thumb_color,
-                            scrollbar_edges,
-                            cx.theme().colors().scrollbar_thumb_border,
-                            BorderStyle::Solid,
-                        ));
+                            axis == ScrollbarAxis::Horizontal,
+                            gradient_alpha,
+                            3.0,
+                            window,
+                            cx,
+                        ) {
+                            let scrollbar_thumb_color = match scrollbar_layout.thumb_state {
+                                ScrollbarThumbState::Dragging => {
+                                    cx.theme().colors().scrollbar_thumb_active_background
+                                }
+                                ScrollbarThumbState::Hovered => {
+                                    cx.theme().colors().scrollbar_thumb_hover_background
+                                }
+                                ScrollbarThumbState::Idle => {
+                                    cx.theme().colors().scrollbar_thumb_background
+                                }
+                            };
+                            window.paint_quad(quad(
+                                thumb_bounds,
+                                Corners::default(),
+                                scrollbar_thumb_color,
+                                scrollbar_edges,
+                                cx.theme().colors().scrollbar_thumb_border,
+                                BorderStyle::Solid,
+                            ));
+                        }
 
                         if any_scrollbar_dragged {
                             window.set_window_cursor_style(CursorStyle::Arrow);
@@ -11146,6 +11160,8 @@ impl CursorLayout {
 
     pub fn paint(&mut self, origin: gpui::Point<Pixels>, window: &mut Window, cx: &mut App) {
         let bounds = window.pixel_snap_bounds(self.bounds(origin));
+        let is_underline = matches!(self.shape, CursorShape::Underline);
+        let is_hollow = matches!(self.shape, CursorShape::Hollow);
 
         if let Some(corners) = self.animated_corners {
             let mut builder = gpui::PathBuilder::fill();
@@ -11154,25 +11170,47 @@ impl CursorLayout {
                 if let Some(name) = &mut self.cursor_name {
                     name.paint(window, cx);
                 }
-                window.paint_path(path, self.color);
+                let path_bg = ui::gradient_chrome::cursor_path_background(
+                    is_underline,
+                    self.color.a,
+                    window,
+                    cx,
+                )
+                .unwrap_or_else(|| self.color.into());
+                window.paint_path(path, path_bg);
 
                 if !animated_corners_overlap_target(bounds, &corners) {
                     return;
                 }
             }
         } else {
-            //Draw background or border quad
-            let cursor = if matches!(self.shape, CursorShape::Hollow) {
-                outline(bounds, self.color, BorderStyle::Solid)
-            } else {
-                fill(bounds, self.color)
-            };
-
             if let Some(name) = &mut self.cursor_name {
                 name.paint(window, cx);
             }
 
-            window.paint_quad(cursor);
+            let radius_px = if matches!(self.shape, CursorShape::Block) {
+                2.0
+            } else {
+                1.0
+            };
+            if !ui::gradient_chrome::paint_text_cursor_quad(
+                bounds,
+                is_underline,
+                is_hollow,
+                self.color.a,
+                radius_px,
+                window,
+                cx,
+            ) {
+                //Draw background or border quad
+                let cursor = if is_hollow {
+                    outline(bounds, self.color, BorderStyle::Solid)
+                } else {
+                    fill(bounds, self.color)
+                };
+
+                window.paint_quad(cursor);
+            }
         }
 
         if let Some(block_text) = &self.block_text {
