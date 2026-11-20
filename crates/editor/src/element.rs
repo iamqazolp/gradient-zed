@@ -6088,7 +6088,7 @@ impl EditorElement {
                 self.paint_highlighted_range(
                     range.clone(),
                     true,
-                    redaction_color.into(),
+                    redaction_color,
                     Pixels::ZERO,
                     line_end_overshoot,
                     layout,
