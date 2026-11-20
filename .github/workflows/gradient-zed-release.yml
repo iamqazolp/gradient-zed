@@ -26,6 +26,7 @@ env:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build_macos_arm64:
@@ -36,32 +37,30 @@ jobs:
       - name: Checkout Gradient Zed
         uses: actions/checkout@v4
         with:
-          fetch-depth: 50
+          fetch-depth: 100
 
       - name: Restore Source Timestamps (Keep Cargo Workspace Cache Fresh)
         run: |
           python3 - <<'PY'
           import os, subprocess
 
+          # Fixed baseline timestamp matching the warm V5 cache epoch so untouched upstream
+          # files keep an identical mtime across every future commit (never sliding with git depth).
+          BASE_TS = 1794226111
+
           raw = subprocess.check_output(
               ["git", "-c", "core.quotepath=false", "log", "--format=%x1e%ct%x00", "--name-only", "-z"]
           )
           latest = {}
-          oldest_ts = None
           for record in raw.split(b"\x1e"):
               if not record:
                   continue
               parts = [p for p in record.split(b"\x00") if p]
               ts = int(parts[0].strip())
-              if oldest_ts is None or ts < oldest_ts:
-                  oldest_ts = ts
               for raw_path in parts[1:]:
                   path = raw_path.lstrip(b"\n").decode("utf-8", "surrogateescape")
                   if path:
-                      latest.setdefault(path, ts)
-
-          if oldest_ts is None:
-              raise SystemExit("No commits found in git log")
+                      latest.setdefault(path, max(ts, BASE_TS))
 
           tracked = subprocess.check_output(["git", "ls-files", "-z"]).split(b"\x00")
           updated = 0
@@ -70,10 +69,10 @@ jobs:
                   continue
               path = raw_path.decode("utf-8", "surrogateescape")
               if os.path.exists(path) and not os.path.islink(path):
-                  ts = latest.get(path, oldest_ts)
+                  ts = latest.get(path, BASE_TS)
                   os.utime(path, (ts, ts))
                   updated += 1
-          print(f"Restored git mtimes on {updated} tracked files (oldest_ts={oldest_ts}, touched={len(latest)})")
+          print(f"Restored git mtimes on {updated} tracked files (base_ts={BASE_TS}, touched={len(latest)})")
           PY
 
       - name: Select Xcode with macOS SDK >= 26
@@ -103,15 +102,24 @@ jobs:
           toolchain: '1.98.1'
           targets: aarch64-apple-darwin
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Restore & Save Rolling Cargo Cache
+        uses: actions/cache@v4
         with:
-          key: macos-arm64-gradient-zed-fast
-          cache-all-crates: "true"
-          cache-workspace-crates: "true"
-          cache-on-failure: "true"
-          cache-directories: ~/.cargo/bin
-          save-if: "true"
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          # Deterministic key (immune to GitHub macos-26 preinstalled 1.99.1 vs 1.100.0 drift)
+          # with rolling run_id suffix so every build updates the workspace cache and restores
+          # immediately from the previous build (including our warm V5 a2acbdd4 cache).
+          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+          restore-keys: |
+            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-
+            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-a2acbdd4-
+            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-
+          save-always: true
 
       - name: Install Prebuilt cargo-about & cmake
         uses: taiki-e/install-action@v2
@@ -179,3 +187,24 @@ jobs:
                ```
                (or right-click → Open in Finder).
             3. Click **`Studio ▴`** in the bottom-right status bar or press **`Option + Shift + P`** to open Gradient Studio!
+
+      - name: Trim Target Artifacts & Prune Old Caches
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf \
+            target/aarch64-apple-darwin/release/*.dmg \
+            target/aarch64-apple-darwin/release/*.app \
+            target/aarch64-apple-darwin/release/zed \
+            target/aarch64-apple-darwin/release/cli \
+            target/aarch64-apple-darwin/release/remote_server \
+            target/aarch64-apple-darwin/release/incremental \
+            target/release/incremental || true
+          # Keep only the 1 newest rust cache before Post-save writes this run's updated cache
+          OLD_IDS=$(gh api "repos/${{ github.repository }}/actions/caches?per_page=50" \
+            --jq '[.actions_caches[] | select(.key | startswith("v0-rust-macos-arm64-gradient-zed-fast-"))] | sort_by(.created_at) | reverse | .[1:] | .[].id' 2>/dev/null || true)
+          for id in $OLD_IDS; do
+            echo "Pruning stale cargo cache $id"
+            gh api -X DELETE "repos/${{ github.repository }}/actions/caches/$id" || true
+          done
