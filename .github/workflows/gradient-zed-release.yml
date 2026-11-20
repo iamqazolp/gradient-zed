@@ -2,8 +2,6 @@ name: Build & Release Gradient Zed
 
 on:
   push:
-    branches:
-      - gradient-zed
     tags:
       - 'gradient-v*'
   workflow_dispatch:

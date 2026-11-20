@@ -380,9 +380,10 @@ pub fn update_state(cx: &mut App, f: impl FnOnce(&mut GradientStudioState)) {
         if state.dirty {
             state.dirty = false;
             let snapshot = state.to_persisted();
-            let executor = cx.background_executor().clone();
+            let executor = cx.background_executor();
+            let timer = executor.timer(SAVE_DEBOUNCE);
             state.save_task = Some(executor.spawn(async move {
-                executor.timer(SAVE_DEBOUNCE).await;
+                timer.await;
                 GradientStudioState::write_snapshot_atomic(&snapshot);
             }));
         }
