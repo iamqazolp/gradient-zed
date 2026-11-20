@@ -6257,14 +6257,24 @@ impl AgentPanel {
                 .into_any_element()
         };
 
+        let gradient_on = workspace::gradient_studio::is_enabled(cx);
         h_flex()
             .id("agent-panel-toolbar")
+            .relative()
             .h(Tab::container_height(cx))
             .flex_shrink_0()
             .max_w_full()
             .bg(cx.theme().colors().tab_bar_background)
-            .border_b_1()
-            .border_color(cx.theme().colors().border)
+            .when(!gradient_on, |this| {
+                this.border_b_1().border_color(cx.theme().colors().border)
+            })
+            .children(workspace::gradient_studio::render_gradient_edge(
+                Some(workspace::gradient_studio::PanelRegion::RightDock),
+                workspace::gradient_studio::GradientEdge::Bottom,
+                1.5,
+                0.55,
+                cx,
+            ))
             .child(toolbar_content)
     }
 

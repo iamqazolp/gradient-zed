@@ -2,9 +2,9 @@ use std::f32::consts::TAU;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Bounds, ContentMask, Hsla, IntoElement, Pixels,
-    Styled, Window, canvas, div, fill, linear_color_stop, linear_gradient, point, px,
-    radial_gradient, size,
+    Animation, AnimationExt as _, AnyElement, App, Bounds, ContentMask, Hsla, IntoElement,
+    ParentElement as _, Pixels, Styled, Window, canvas, div, fill, linear_color_stop,
+    linear_gradient, point, px, radial_gradient, size,
 };
 use theme::{ActiveTheme, Appearance};
 
@@ -161,6 +161,135 @@ pub fn render_zoomed_aurora_backdrop(
         window,
         cx,
     ))
+}
+
+/// Edge along which a zero-layout-shift 4-color gradient hairline border is painted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GradientEdge {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+fn render_four_stop_fill(stops: FourStops, alpha: f32, horizontal: bool) -> AnyElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<Pixels>, (), window, _cx| {
+            let width = f32::from(bounds.size.width);
+            let height = f32::from(bounds.size.height);
+            if width <= 0.0 || height <= 0.0 {
+                return;
+            }
+            paint_four_stop_band(bounds, stops, [alpha, alpha, alpha, alpha], horizontal, window);
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
+}
+
+/// Paints a sleek 4-color rainbow gradient hairline along one edge of a `relative()` container
+/// (matching VS Code's `--g-border` / `--g-border-v` panel dividers) with zero layout shift.
+pub fn render_gradient_edge(
+    region: Option<PanelRegion>,
+    edge: GradientEdge,
+    thickness_px: f32,
+    alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    let state = cx.try_global::<GradientStudioState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let stops = state.resolved_stops(region);
+    let horizontal = matches!(edge, GradientEdge::Top | GradientEdge::Bottom);
+    let mut strip = div().absolute().overflow_hidden();
+    strip = match edge {
+        GradientEdge::Top => strip.top_0().left_0().right_0().h(px(thickness_px)),
+        GradientEdge::Bottom => strip.bottom_0().left_0().right_0().h(px(thickness_px)),
+        GradientEdge::Left => strip.top_0().bottom_0().left_0().w(px(thickness_px)),
+        GradientEdge::Right => strip.top_0().bottom_0().right_0().w(px(thickness_px)),
+    };
+    Some(
+        strip
+            .child(render_four_stop_fill(stops, alpha, horizontal))
+            .into_any_element(),
+    )
+}
+
+/// Paints an in-flow 4-color rainbow gradient divider line (e.g. between sidebar project groups).
+pub fn render_gradient_divider(
+    region: Option<PanelRegion>,
+    horizontal: bool,
+    thickness_px: f32,
+    alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    let state = cx.try_global::<GradientStudioState>()?;
+    if !state.enabled {
+        return None;
+    }
+    let stops = state.resolved_stops(region);
+    let mut strip = div().relative().flex_shrink_0().overflow_hidden();
+    strip = if horizontal {
+        strip.w_full().h(px(thickness_px))
+    } else {
+        strip.h_full().w(px(thickness_px))
+    };
+    Some(
+        strip
+            .child(render_four_stop_fill(stops, alpha, horizontal))
+            .into_any_element(),
+    )
+}
+
+/// Wraps `content` in VS Code's signature rounded 4-color gradient border frame (`1.5px` prism
+/// perimeter around a frosted translucent glass surface with crisp content on top).
+pub fn wrap_gradient_frame(
+    region: Option<PanelRegion>,
+    radius_px: f32,
+    border_px: f32,
+    fill_height: bool,
+    content: AnyElement,
+    cx: &App,
+) -> AnyElement {
+    let Some(state) = cx.try_global::<GradientStudioState>().filter(|s| s.enabled) else {
+        return content;
+    };
+    let stops = state.resolved_stops(region);
+    let is_light = cx.theme().appearance() == Appearance::Light;
+    let canvas_bg = canvas_background(cx);
+    let inner_bg = canvas_bg.opacity(if is_light { 0.80 } else { 0.78 });
+    let inner_wash_alpha = if is_light { 0.09 } else { 0.14 };
+    let border_alpha = if is_light { 0.86 } else { 0.82 };
+
+    let mut inner = div()
+        .relative()
+        .w_full()
+        .rounded(px((radius_px - border_px).max(2.0)))
+        .overflow_hidden()
+        .bg(inner_bg)
+        .child(render_four_stop_fill(stops, inner_wash_alpha, true))
+        .child(content);
+    if fill_height {
+        inner = inner.flex_1().h_full().flex().flex_col();
+    }
+
+    let mut outer = div()
+        .relative()
+        .w_full()
+        .p(px(border_px))
+        .rounded(px(radius_px))
+        .overflow_hidden()
+        .shadow_sm()
+        .child(render_four_stop_fill(stops, border_alpha, true))
+        .child(inner);
+    if fill_height {
+        outer = outer.flex_1().h_full().flex().flex_col();
+    }
+
+    outer.into_any_element()
 }
 
 /// Renders a decorative 4-corner radial aurora backdrop inside the Gradient Studio card itself.

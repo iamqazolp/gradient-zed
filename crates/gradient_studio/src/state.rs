@@ -627,7 +627,8 @@ pub fn update_state(cx: &mut App, f: impl FnOnce(&mut GradientStudioState)) {
     if !cx.has_global::<GradientStudioState>() {
         return;
     }
-    cx.update_global::<GradientStudioState, _>(|state, cx| {
+    let visual_changed = cx.update_global::<GradientStudioState, _>(|state, cx| {
+        let prev_rev = state.visual_revision;
         state.dirty = false;
         f(state);
         if state.dirty {
@@ -640,5 +641,9 @@ pub fn update_state(cx: &mut App, f: impl FnOnce(&mut GradientStudioState)) {
                 GradientStudioState::write_snapshot_atomic(&snapshot);
             }));
         }
+        state.visual_revision != prev_rev
     });
+    if visual_changed {
+        cx.refresh_windows();
+    }
 }

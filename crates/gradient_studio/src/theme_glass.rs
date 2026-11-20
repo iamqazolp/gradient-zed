@@ -119,9 +119,9 @@ fn build_glass_theme(raw: &Theme, canvas_bg: Hsla) -> Theme {
     panel_overlay.a = 1.0;
 
     // Make structural panel containers transparent so the aurora renders BEHIND text, icons,
-    // buttons, and syntax tokens — never washing them out. Keep `surface_background`,
-    // `elevated_surface_background`, `element_*`, `text*`, `icon*`, `border*`, and `syntax`
-    // 100% opaque and razor-sharp.
+    // buttons, and syntax tokens — never washing them out. Soften chalky opaque borders &
+    // ghost selection pills into frosted aurora glass while keeping `surface_background`,
+    // `elevated_surface_background`, `element_*`, `text*`, `icon*`, and `syntax` razor-sharp.
     let c = &mut glass.styles.colors;
     c.panel_overlay_background = panel_overlay;
     c.background = transparent_black();
@@ -137,6 +137,23 @@ fn build_glass_theme(raw: &Theme, canvas_bg: Hsla) -> Theme {
     c.title_bar_inactive_background = transparent_black();
     c.status_bar_background = transparent_black();
     c.terminal_background = transparent_black();
+
+    // Frosted translucent hairlines & sidebar row highlights (matches VS Code glass aesthetic)
+    if is_light {
+        c.border = gpui::rgba(0x0f172a1c).into();
+        c.border_variant = gpui::rgba(0x0f172a12).into();
+        c.pane_group_border = gpui::rgba(0x0f172a1c).into();
+        c.ghost_element_hover = gpui::rgba(0xffffff58).into();
+        c.ghost_element_active = gpui::rgba(0xffffff80).into();
+        c.ghost_element_selected = gpui::rgba(0xffffff8c).into();
+    } else {
+        c.border = gpui::rgba(0xffffff1f).into();
+        c.border_variant = gpui::rgba(0xffffff14).into();
+        c.pane_group_border = gpui::rgba(0xffffff1f).into();
+        c.ghost_element_hover = gpui::rgba(0xffffff14).into();
+        c.ghost_element_active = gpui::rgba(0xffffff22).into();
+        c.ghost_element_selected = gpui::rgba(0xffffff1c).into();
+    }
 
     glass
 }

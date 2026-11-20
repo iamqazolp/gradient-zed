@@ -1337,8 +1337,25 @@ impl Render for Dock {
                 }
             };
 
+            let (dock_gradient_region, dock_gradient_edge) = match self.position() {
+                DockPosition::Left => (
+                    gradient_studio::PanelRegion::LeftDock,
+                    gradient_studio::GradientEdge::Right,
+                ),
+                DockPosition::Right => (
+                    gradient_studio::PanelRegion::RightDock,
+                    gradient_studio::GradientEdge::Left,
+                ),
+                DockPosition::Bottom => (
+                    gradient_studio::PanelRegion::BottomDock,
+                    gradient_studio::GradientEdge::Top,
+                ),
+            };
+            let gradient_enabled = gradient_studio::is_enabled(cx);
+
             div()
                 .id("dock-panel")
+                .relative()
                 .key_context(dispatch_context)
                 .track_focus(&self.focus_handle(cx))
                 .focus_follows_mouse(WorkspaceSettings::get_global(cx).focus_follows_mouse, cx)
@@ -1352,7 +1369,7 @@ impl Render for Dock {
                     Axis::Horizontal => this.w_full().h_full().flex_row(),
                     Axis::Vertical => this.h_full().w_full().flex_col(),
                 })
-                .map(|this| match self.position() {
+                .when(!gradient_enabled, |this| match self.position() {
                     DockPosition::Left => this.border_r_1(),
                     DockPosition::Right => this.border_l_1(),
                     DockPosition::Bottom => this.border_t_1(),
@@ -1370,6 +1387,13 @@ impl Render for Dock {
                                 .cached(StyleRefinement::default().v_flex().size_full()),
                         ),
                 )
+                .children(gradient_studio::render_gradient_edge(
+                    Some(dock_gradient_region),
+                    dock_gradient_edge,
+                    1.5,
+                    0.62,
+                    cx,
+                ))
                 .when(self.resizable(cx), |this| {
                     this.child(create_resize_handle())
                 })

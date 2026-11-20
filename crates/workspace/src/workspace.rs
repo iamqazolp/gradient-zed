@@ -30,6 +30,7 @@ pub mod workspace_error;
 mod workspace_settings;
 
 pub use dock::Panel;
+pub use gradient_studio;
 pub use multi_workspace::{
     CloseWorkspaceSidebar, DraggedSidebar, FocusWorkspaceSidebar, MoveProjectDown,
     MoveProjectToNewWindow, MoveProjectUp, MultiWorkspace, MultiWorkspaceEvent, NewThread,
@@ -10091,9 +10092,23 @@ impl Render for Workspace {
                             .flex()
                             .flex_col()
                             .overflow_hidden()
-                            .border_t_1()
-                            .border_b_1()
-                            .border_color(colors.border)
+                            .when(!gradient_studio::is_enabled(cx), |this| {
+                                this.border_t_1().border_b_1().border_color(colors.border)
+                            })
+                            .children(gradient_studio::render_gradient_edge(
+                                Some(gradient_studio::PanelRegion::Bars),
+                                gradient_studio::GradientEdge::Top,
+                                1.5,
+                                0.62,
+                                cx,
+                            ))
+                            .children(gradient_studio::render_gradient_edge(
+                                Some(gradient_studio::PanelRegion::Bars),
+                                gradient_studio::GradientEdge::Bottom,
+                                1.5,
+                                0.62,
+                                cx,
+                            ))
                             .child({
                                 let this = cx.entity();
                                 canvas(

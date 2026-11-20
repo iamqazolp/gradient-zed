@@ -2293,10 +2293,19 @@ impl Sidebar {
         };
 
         if is_group_header_after_first {
+            let gradient_on = workspace::gradient_studio::is_enabled(cx);
             v_flex()
                 .w_full()
-                .border_t_1()
-                .border_color(cx.theme().colors().border)
+                .when(!gradient_on, |this| {
+                    this.border_t_1().border_color(cx.theme().colors().border)
+                })
+                .children(workspace::gradient_studio::render_gradient_divider(
+                    Some(workspace::gradient_studio::PanelRegion::LeftDock),
+                    true,
+                    1.0,
+                    0.42,
+                    cx,
+                ))
                 .child(rendered)
                 .into_any_element()
         } else {
@@ -7386,7 +7395,17 @@ impl Sidebar {
             !cfg!(target_os = "macos") && not_fullscreen && sidebar_on_right;
         let header_height = platform_title_bar_height(window);
 
+        let gradient_on = workspace::gradient_studio::is_enabled(cx);
+        let header_border_color = cx.theme().colors().border;
+        let header_gradient_edge = workspace::gradient_studio::render_gradient_edge(
+            Some(workspace::gradient_studio::PanelRegion::Bars),
+            workspace::gradient_studio::GradientEdge::Bottom,
+            1.5,
+            0.62,
+            cx,
+        );
         h_flex()
+            .relative()
             .h(header_height)
             .map(|header| match window.window_decorations() {
                 // Without projects there's no bottom border to match the title bar's.
@@ -7413,9 +7432,11 @@ impl Sidebar {
             .when(!right_window_controls, |this| this.pr_1p5())
             .gap_1()
             .when(!no_open_projects, |this| {
-                this.border_b_1()
-                    .border_color(cx.theme().colors().border)
-                    .when(traffic_lights, |this| {
+                this.when(!gradient_on, |this| {
+                    this.border_b_1().border_color(header_border_color)
+                })
+                .children(header_gradient_edge)
+                .when(traffic_lights, |this| {
                         this.child(Divider::vertical().color(ui::DividerColor::Border))
                     })
                     .child(
@@ -7529,13 +7550,23 @@ impl Sidebar {
     fn render_sidebar_bottom_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let is_archive = matches!(self.view, SidebarView::Archive(..));
         let on_right = self.side(cx) == SidebarSide::Right;
+        let gradient_on = workspace::gradient_studio::is_enabled(cx);
 
         h_flex()
+            .relative()
             .p_1()
             .gap_1()
             .when(on_right, |this| this.flex_row_reverse())
-            .border_t_1()
-            .border_color(cx.theme().colors().border)
+            .when(!gradient_on, |this| {
+                this.border_t_1().border_color(cx.theme().colors().border)
+            })
+            .children(workspace::gradient_studio::render_gradient_edge(
+                Some(workspace::gradient_studio::PanelRegion::Bars),
+                workspace::gradient_studio::GradientEdge::Top,
+                1.5,
+                0.62,
+                cx,
+            ))
             .child(self.render_sidebar_toggle_button(cx))
             .child(
                 IconButton::new("history", IconName::Clock)
@@ -8040,9 +8071,11 @@ impl Render for Sidebar {
                 }
             })
             .bg(bg)
-            .when(self.side(cx) == SidebarSide::Left, |el| el.border_r_1())
-            .when(self.side(cx) == SidebarSide::Right, |el| el.border_l_1())
-            .border_color(color.border)
+            .when(!workspace::gradient_studio::is_enabled(cx), |el| {
+                el.when(self.side(cx) == SidebarSide::Left, |el| el.border_r_1())
+                    .when(self.side(cx) == SidebarSide::Right, |el| el.border_l_1())
+                    .border_color(color.border)
+            })
             .map(|this| match &self.view {
                 SidebarView::ThreadList => this
                     .child(self.render_sidebar_header(no_open_projects, window, cx))

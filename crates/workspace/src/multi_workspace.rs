@@ -2134,6 +2134,12 @@ impl Render for MultiWorkspace {
                         .occlude(),
                 );
 
+                let sidebar_edge = if sidebar_on_right {
+                    gradient_studio::GradientEdge::Left
+                } else {
+                    gradient_studio::GradientEdge::Right
+                };
+
                 div()
                     .id("sidebar-container")
                     .relative()
@@ -2146,6 +2152,13 @@ impl Render for MultiWorkspace {
                         cx,
                     ))
                     .child(sidebar_handle.to_any())
+                    .children(gradient_studio::render_gradient_edge(
+                        Some(gradient_studio::PanelRegion::LeftDock),
+                        sidebar_edge,
+                        1.5,
+                        0.62,
+                        cx,
+                    ))
                     .child(resize_handle)
                     .into_any_element()
             })

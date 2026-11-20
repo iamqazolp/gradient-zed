@@ -5595,7 +5595,117 @@ impl ThreadView {
                 )
         });
 
+        let gradient_on = workspace::gradient_studio::is_enabled(cx);
+        let composer_inner = v_flex()
+            .w_full()
+            .min_w_0()
+            .when(fills_container, |this| this.flex_1().h_full())
+            .px_2p5()
+            .py_1p5()
+            .justify_between()
+            .gap_2()
+            .child(
+                v_flex()
+                    .relative()
+                    .w_full()
+                    .min_h_0()
+                    .when(fills_container, |this| this.flex_1())
+                    .pt_1()
+                    .pr_2p5()
+                    .child(self.message_editor.clone())
+                    .when(has_messages, |this| {
+                        this.child(
+                            h_flex()
+                                .absolute()
+                                .top_0()
+                                .right_0()
+                                .opacity(0.5)
+                                .hover(|s| s.opacity(1.0))
+                                .child(
+                                    IconButton::new("toggle-height", expand_icon)
+                                        .icon_size(IconSize::Small)
+                                        .icon_color(Color::Muted)
+                                        .tooltip({
+                                            move |_window, cx| {
+                                                Tooltip::for_action_in(
+                                                    expand_tooltip,
+                                                    &ExpandMessageEditor,
+                                                    &focus_handle,
+                                                    cx,
+                                                )
+                                            }
+                                        })
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.expand_message_editor(
+                                                &ExpandMessageEditor,
+                                                window,
+                                                cx,
+                                            );
+                                        })),
+                                ),
+                        )
+                    }),
+            )
+            .child(
+                h_flex()
+                    .w_full()
+                    .min_w_0()
+                    .flex_none()
+                    .flex_wrap()
+                    .justify_between()
+                    .child(
+                        h_flex()
+                            .min_w_0()
+                            .flex_wrap()
+                            .gap_0p5()
+                            .child(self.render_add_context_button(cx))
+                            .child(self.render_follow_toggle(cx))
+                            .children(self.render_fast_mode_control(cx))
+                            .children(self.render_thinking_control(cx)),
+                    )
+                    .child(
+                        h_flex()
+                            .min_w_0()
+                            .flex_wrap()
+                            .gap_1()
+                            .children(self.render_activity_status_label(cx))
+                            .children(discard_draft_button)
+                            .children(self.render_token_usage(cx))
+                            .children(self.profile_selector.clone())
+                            .map(|this| match self.config_options_view.clone() {
+                                Some(config_view) => this.child(config_view),
+                                None => this
+                                    .children(self.mode_selector.clone())
+                                    .children(self.model_selector.clone()),
+                            })
+                            .child(self.render_send_button(cx)),
+                    ),
+            );
+
+        let composer_body = if gradient_on {
+            workspace::gradient_studio::wrap_gradient_frame(
+                Some(workspace::gradient_studio::PanelRegion::RightDock),
+                12.0,
+                1.5,
+                fills_container,
+                composer_inner.into_any_element(),
+                cx,
+            )
+        } else {
+            composer_inner.into_any_element()
+        };
+
+        let composer_border_color = cx.theme().colors().border;
+        let composer_top_edge = workspace::gradient_studio::render_gradient_edge(
+            Some(workspace::gradient_studio::PanelRegion::RightDock),
+            workspace::gradient_studio::GradientEdge::Top,
+            1.0,
+            0.35,
+            cx,
+        );
+
         h_flex()
+            .relative()
             .py_2()
             .bg(editor_bg_color)
             .justify_center()
@@ -5603,8 +5713,10 @@ impl ThreadView {
             .map(|this| {
                 if has_messages {
                     this.on_action(cx.listener(Self::expand_message_editor))
-                        .border_t_1()
-                        .border_color(cx.theme().colors().border)
+                        .when(!gradient_on, |this| {
+                            this.border_t_1().border_color(composer_border_color)
+                        })
+                        .children(composer_top_edge)
                         .when(editor_expanded, |this| this.h(vh(0.8, window)))
                 } else {
                     this.flex_1().size_full()
@@ -5619,85 +5731,7 @@ impl ThreadView {
                     .px_2()
                     .flex_shrink_1()
                     .flex_grow_0()
-                    .justify_between()
-                    .gap_2()
-                    .child(
-                        v_flex()
-                            .relative()
-                            .w_full()
-                            .min_h_0()
-                            .when(fills_container, |this| this.flex_1())
-                            .pt_1()
-                            .pr_2p5()
-                            .child(self.message_editor.clone())
-                            .when(has_messages, |this| {
-                                this.child(
-                                    h_flex()
-                                        .absolute()
-                                        .top_0()
-                                        .right_0()
-                                        .opacity(0.5)
-                                        .hover(|s| s.opacity(1.0))
-                                        .child(
-                                            IconButton::new("toggle-height", expand_icon)
-                                                .icon_size(IconSize::Small)
-                                                .icon_color(Color::Muted)
-                                                .tooltip({
-                                                    move |_window, cx| {
-                                                        Tooltip::for_action_in(
-                                                            expand_tooltip,
-                                                            &ExpandMessageEditor,
-                                                            &focus_handle,
-                                                            cx,
-                                                        )
-                                                    }
-                                                })
-                                                .on_click(cx.listener(|this, _, window, cx| {
-                                                    this.expand_message_editor(
-                                                        &ExpandMessageEditor,
-                                                        window,
-                                                        cx,
-                                                    );
-                                                })),
-                                        ),
-                                )
-                            }),
-                    )
-                    .child(
-                        h_flex()
-                            .w_full()
-                            .min_w_0()
-                            .flex_none()
-                            .flex_wrap()
-                            .justify_between()
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .flex_wrap()
-                                    .gap_0p5()
-                                    .child(self.render_add_context_button(cx))
-                                    .child(self.render_follow_toggle(cx))
-                                    .children(self.render_fast_mode_control(cx))
-                                    .children(self.render_thinking_control(cx)),
-                            )
-                            .child(
-                                h_flex()
-                                    .min_w_0()
-                                    .flex_wrap()
-                                    .gap_1()
-                                    .children(self.render_activity_status_label(cx))
-                                    .children(discard_draft_button)
-                                    .children(self.render_token_usage(cx))
-                                    .children(self.profile_selector.clone())
-                                    .map(|this| match self.config_options_view.clone() {
-                                        Some(config_view) => this.child(config_view),
-                                        None => this
-                                            .children(self.mode_selector.clone())
-                                            .children(self.model_selector.clone()),
-                                    })
-                                    .child(self.render_send_button(cx)),
-                            ),
-                    ),
+                    .child(composer_body),
             )
             .into_any()
     }
@@ -7512,40 +7546,62 @@ impl ThreadView {
                     .child(
                         div()
                             .relative()
-                            .child(
-                                div()
-                                    .py_3()
-                                    .px_2()
-                                    .rounded_md()
-                                    .bg(cx.theme().colors().editor_background)
-                                    .border_1()
-                                    .when(is_indented, |this| {
-                                        this.py_2().px_2().when(opaque_window, |this| {
-                                            this.shadow_sm()
+                            .child({
+                                let use_gradient_frame = workspace::gradient_studio::is_enabled(cx)
+                                    && !is_subagent
+                                    && !editing;
+                                if use_gradient_frame {
+                                    let inner_msg = div()
+                                        .py_3()
+                                        .px_2p5()
+                                        .when(is_indented, |this| this.py_2().px_2())
+                                        .text_xs()
+                                        .child(editor.clone().into_any_element())
+                                        .into_any_element();
+                                    workspace::gradient_studio::wrap_gradient_frame(
+                                        Some(workspace::gradient_studio::PanelRegion::RightDock),
+                                        10.0,
+                                        1.5,
+                                        false,
+                                        inner_msg,
+                                        cx,
+                                    )
+                                } else {
+                                    div()
+                                        .py_3()
+                                        .px_2()
+                                        .rounded_md()
+                                        .bg(cx.theme().colors().editor_background)
+                                        .border_1()
+                                        .when(is_indented, |this| {
+                                            this.py_2().px_2().when(opaque_window, |this| {
+                                                this.shadow_sm()
+                                            })
                                         })
-                                    })
-                                    .border_color(cx.theme().colors().border)
-                                    .map(|this| {
-                                        if !is_editable {
-                                            if is_subagent {
+                                        .border_color(cx.theme().colors().border)
+                                        .map(|this| {
+                                            if !is_editable {
+                                                if is_subagent {
+                                                    return this.border_dashed();
+                                                }
+                                                return this;
+                                            }
+                                            if editing && editor_focus {
+                                                return this.border_color(focus_border);
+                                            }
+                                            if editing && !editor_focus {
                                                 return this.border_dashed();
                                             }
-                                            return this;
-                                        }
-                                        if editing && editor_focus {
-                                            return this.border_color(focus_border);
-                                        }
-                                        if editing && !editor_focus {
-                                            return this.border_dashed()
-                                        }
-                                        this.when(opaque_window, |this| this.shadow_md())
-                                            .hover(|s| {
-                                                s.border_color(focus_border.opacity(0.8))
-                                            })
-                                    })
-                                    .text_xs()
-                                    .child(editor.clone().into_any_element())
-                            )
+                                            this.when(opaque_window, |this| this.shadow_md())
+                                                .hover(|s| {
+                                                    s.border_color(focus_border.opacity(0.8))
+                                                })
+                                        })
+                                        .text_xs()
+                                        .child(editor.clone().into_any_element())
+                                        .into_any_element()
+                                }
+                            })
                             .when(editor_focus, |this| {
                                 let base_container = h_flex()
                                     .absolute()

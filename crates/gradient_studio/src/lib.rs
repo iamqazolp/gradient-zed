@@ -7,7 +7,8 @@ pub mod theme_glass;
 use gpui::{App, actions};
 
 pub use overlay::{
-    render_aurora_overlay, render_studio_card_backdrop, render_zoomed_aurora_backdrop,
+    GradientEdge, render_aurora_overlay, render_gradient_divider, render_gradient_edge,
+    render_studio_card_backdrop, render_zoomed_aurora_backdrop, wrap_gradient_frame,
 };
 pub use palettes::{
     CURATED_PALETTES, CuratedPalette, CustomPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS,
