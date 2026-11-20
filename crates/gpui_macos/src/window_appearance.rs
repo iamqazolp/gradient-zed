@@ -26,7 +26,8 @@ pub(crate) fn window_appearance_from_native(appearance: Option<&NSAppearance>) -
 
         // Fall back to string matching so macOS 26 / accessibility appearance names
         // (e.g. NSAppearanceNameAccessibilityHighContrastDarkAqua) never misclassify as Light.
-        let name_str = name_ptr.cast_mut().to_str();
+        let name_mut = name_ptr.cast_mut();
+        let name_str = name_mut.to_str();
         if name_str.contains("VibrantDark") {
             WindowAppearance::VibrantDark
         } else if name_str.contains("VibrantLight") {

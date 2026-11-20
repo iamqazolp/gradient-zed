@@ -67,7 +67,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: macos-arm64-gradient-zed-fast
-          save-if: true
+          cache-all-crates: "true"
+          cache-workspace-crates: "true"
+          cache-on-failure: "true"
+          cache-directories: ~/.cargo/bin
+          save-if: "true"
 
       - name: Install Prebuilt cargo-about & cmake
         uses: taiki-e/install-action@v2
@@ -90,6 +94,12 @@ jobs:
           echo "zed_version=${ZED_VER}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Using release tag: ${TAG}"
+
+      - name: Pre-build Modified Crates (Fast Fail)
+        env:
+          CARGO_INCREMENTAL: 0
+        run: |
+          cargo build --release --target aarch64-apple-darwin -p gpui_macos -p gradient_studio -p workspace
 
       - name: Bundle Gradient Zed (macOS Apple Silicon)
         env:
