@@ -31,15 +31,23 @@ jobs:
         id: upstream
         run: |
           git remote add upstream https://github.com/zed-industries/zed.git || git remote set-url upstream https://github.com/zed-industries/zed.git
-          git fetch upstream --tags --prune
 
-          LATEST_TAG=$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          LATEST_TAG=$(git ls-remote --tags --refs upstream 'refs/tags/v*' \
+            | awk '{print $2}' \
+            | sed 's|^refs/tags/||' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -n 1 || true)
           if [[ -z "${LATEST_TAG}" ]]; then
             echo "Could not resolve any upstream vX.Y.Z tag."
             exit 1
           fi
           echo "latest_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
           echo "Latest upstream Zed stable release: ${LATEST_TAG}"
+
+          # Fetch only the target stable release tag (avoids moving `nightly` tag clobber
+          # errors and skips fetching thousands of unrelated upstream dev branches).
+          git fetch --no-tags --force upstream "refs/tags/${LATEST_TAG}:refs/tags/${LATEST_TAG}"
 
           if git merge-base --is-ancestor "${LATEST_TAG}" HEAD; then
             echo "up_to_date=true" >> "$GITHUB_OUTPUT"
@@ -59,13 +67,22 @@ jobs:
           git checkout -B "${SYNC_BRANCH}"
 
           if git merge --no-edit "${LATEST_TAG}"; then
-            git push -f origin "${SYNC_BRANCH}"
-            if ! gh pr list --state open --head "${SYNC_BRANCH}" --json number --jq '.[0].number' | grep -q .; then
-              gh pr create \
-                --base gradient-zed \
-                --head "${SYNC_BRANCH}" \
-                --title "chore: sync upstream Zed ${LATEST_TAG}" \
-                --body "Automated upstream sync from \`zed-industries/zed\` \`${LATEST_TAG}\`. Merge this PR and tag \`gradient-${LATEST_TAG}\` to publish the updated Gradient Zed build."
+            if git push -f origin "${SYNC_BRANCH}"; then
+              if ! gh pr list --state open --head "${SYNC_BRANCH}" --json number --jq '.[0].number' | grep -q .; then
+                gh pr create \
+                  --base gradient-zed \
+                  --head "${SYNC_BRANCH}" \
+                  --title "chore: sync upstream Zed ${LATEST_TAG}" \
+                  --body "Automated upstream sync from \`zed-industries/zed\` \`${LATEST_TAG}\`. Merge this PR and tag \`gradient-${LATEST_TAG}\` to publish the updated Gradient Zed build."
+              fi
+            else
+              echo "Push failed (likely upstream changes in .github/workflows requiring local merge)."
+              TITLE="Upstream sync for Zed ${LATEST_TAG} requires manual push"
+              if ! gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
+                gh issue create \
+                  --title "${TITLE}" \
+                  --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` succeeded cleanly, but pushing \`${SYNC_BRANCH}\` was rejected (e.g. upstream modified \`.github/workflows/*\`, which requires a user push). Run \`git fetch upstream tag ${LATEST_TAG} && git merge ${LATEST_TAG} && git push origin gradient-zed\` locally."
+              fi
             fi
           else
             echo "Merge conflicts detected while syncing ${LATEST_TAG}."
