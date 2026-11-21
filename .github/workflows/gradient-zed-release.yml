@@ -102,8 +102,8 @@ jobs:
           toolchain: '1.98.1'
           targets: aarch64-apple-darwin
 
-      - name: Restore & Save Rolling Cargo Cache
-        uses: actions/cache@v4
+      - name: Restore Rolling Cargo Cache
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/bin
@@ -112,14 +112,13 @@ jobs:
             ~/.cargo/git/db
             target
           # Deterministic key (immune to GitHub macos-26 preinstalled 1.99.1 vs 1.100.0 drift)
-          # with rolling run_id suffix so every build updates the workspace cache and restores
-          # immediately from the previous build (including our warm V5 a2acbdd4 cache).
-          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}
+          # with rolling run_id+attempt suffix so every build updates the workspace cache and restores
+          # immediately from the previous build.
+          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-
             v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-a2acbdd4-
             v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-
-          save-always: true
 
       - name: Install Prebuilt cargo-about & cmake
         uses: taiki-e/install-action@v2
@@ -208,3 +207,15 @@ jobs:
             echo "Pruning stale cargo cache $id"
             gh api -X DELETE "repos/${{ github.repository }}/actions/caches/$id" || true
           done
+
+      - name: Save Rolling Cargo Cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}

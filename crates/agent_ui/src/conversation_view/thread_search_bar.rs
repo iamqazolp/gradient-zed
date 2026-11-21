@@ -843,7 +843,7 @@ impl Render for ThreadSearchBar {
                                 SearchSource::Buffer,
                                 focus_handle.clone(),
                             )),
-                    ),
+                    )
             })
             .child(
                 h_flex()
