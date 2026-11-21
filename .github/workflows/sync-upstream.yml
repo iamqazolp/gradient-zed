@@ -61,6 +61,7 @@ jobs:
         if: steps.upstream.outputs.up_to_date == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           LATEST_TAG: ${{ steps.upstream.outputs.latest_tag }}
         run: |
           SYNC_BRANCH="sync-upstream-${LATEST_TAG}"
@@ -68,8 +69,9 @@ jobs:
 
           if git merge --no-edit "${LATEST_TAG}"; then
             if git push -f origin "${SYNC_BRANCH}"; then
-              if ! gh pr list --state open --head "${SYNC_BRANCH}" --json number --jq '.[0].number' | grep -q .; then
+              if ! gh pr list --repo "${GH_REPO}" --state open --head "${SYNC_BRANCH}" --json number --jq '.[0].number' | grep -q .; then
                 gh pr create \
+                  --repo "${GH_REPO}" \
                   --base gradient-zed \
                   --head "${SYNC_BRANCH}" \
                   --title "chore: sync upstream Zed ${LATEST_TAG}" \
@@ -78,8 +80,9 @@ jobs:
             else
               echo "Push failed (likely upstream changes in .github/workflows requiring local merge)."
               TITLE="Upstream sync for Zed ${LATEST_TAG} requires manual push"
-              if ! gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
+              if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
                 gh issue create \
+                  --repo "${GH_REPO}" \
                   --title "${TITLE}" \
                   --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` succeeded cleanly, but pushing \`${SYNC_BRANCH}\` was rejected (e.g. upstream modified \`.github/workflows/*\`, which requires a user push). Run \`git fetch upstream tag ${LATEST_TAG} && git merge ${LATEST_TAG} && git push origin gradient-zed\` locally."
               fi
@@ -88,8 +91,9 @@ jobs:
             echo "Merge conflicts detected while syncing ${LATEST_TAG}."
             git merge --abort || true
             TITLE="Upstream sync conflict for Zed ${LATEST_TAG}"
-            if ! gh issue list --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
+            if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
               gh issue create \
+                --repo "${GH_REPO}" \
                 --title "${TITLE}" \
                 --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` hit a merge conflict. Please rebase/merge locally and push."
             fi
