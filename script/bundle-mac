@@ -75,9 +75,10 @@ popd
 export ZED_BUNDLE=true
 export CARGO_BUNDLE_SKIP_BUILD=true
 
-cargo_bundle_version=$(cargo -q bundle --help 2>&1 | head -n 1 || echo "")
-if [ "$cargo_bundle_version" != "cargo-bundle v0.6.1-zed" ]; then
-    cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
+cargo_bundle_version=$(cargo bundle --version 2>/dev/null || true)
+cargo_bundle_help=$(cargo -q bundle --help 2>&1 | head -n 1 || true)
+if [[ "$cargo_bundle_version" != *0.6.1-zed* && "$cargo_bundle_help" != *0.6.1-zed* ]]; then
+    cargo install --force cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
 fi
 
 # Deal with versions of macOS that don't include libstdc++ headers

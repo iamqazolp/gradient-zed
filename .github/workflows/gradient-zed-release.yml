@@ -110,7 +110,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            ~/.cargo/bin
+            ~/.cargo/bin/cargo-bundle
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
@@ -217,7 +217,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: |
-            ~/.cargo/bin
+            ~/.cargo/bin/cargo-bundle
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
