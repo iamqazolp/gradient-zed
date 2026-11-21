@@ -2,14 +2,15 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui::{
-    Anchor, AnyElement, App, Bounds, Context, DismissEvent, EventEmitter, FocusHandle, Focusable,
-    FontWeight, Hsla, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement,
-    Pixels, Render, SharedString, Styled, Window, canvas, div, linear_color_stop, linear_gradient,
-    px, relative, rgb, rgba,
+    Anchor, AnyElement, App, BorderStyle, Bounds, ClickEvent, Context, Corners, CursorStyle,
+    DismissEvent, Edges, EventEmitter, FocusHandle, Focusable, FontWeight, Hsla, KeyDownEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, ParentElement, Pixels, Render, SharedString,
+    Styled, Window, canvas, div, linear_color_stop, linear_gradient, px, quad, relative, rgb,
+    rgba, transparent_black,
 };
 use theme::Appearance;
 use ui::{
-    ButtonLike, ButtonStyle, Color, Label, LabelSize, PopoverMenu, PopoverMenuHandle, Tooltip,
+    Clickable, Color, Label, LabelSize, PopoverMenu, PopoverMenuHandle, Toggleable, Tooltip,
     h_flex, prelude::*, v_flex,
 };
 
@@ -21,32 +22,60 @@ use crate::palettes::{
 use crate::state::{GradientStudioState, PanelRegion, update_state};
 use crate::{RollRandom, ToggleBreathe, ToggleStudio};
 
+fn paint_gradient_bar_canvas(
+    bounds: Bounds<Pixels>,
+    height: f32,
+    stops: FourStops,
+    alpha: f32,
+    window: &mut Window,
+) {
+    let radius = px((height * 0.5).max(1.0));
+    ui::gradient_chrome::paint_rounded_four_stop_band(
+        bounds,
+        radius,
+        stops,
+        [alpha, alpha, alpha, alpha],
+        true,
+        window,
+    );
+}
+
 fn render_gradient_bar(stops: FourStops, height: f32, alpha: f32) -> AnyElement {
-    h_flex()
+    div()
         .w_full()
         .h(px(height))
-        .rounded_full()
-        .overflow_hidden()
         .child(
-            div().flex_1().h_full().bg(linear_gradient(
-                90.0,
-                linear_color_stop(rgb_to_hsla(stops[0], alpha), 0.0),
-                linear_color_stop(rgb_to_hsla(stops[1], alpha), 1.0),
-            )),
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, (), window, _cx| {
+                    paint_gradient_bar_canvas(bounds, height, stops, alpha, window);
+                },
+            )
+            .size_full(),
         )
+        .into_any_element()
+}
+
+fn render_live_gradient_bar(
+    fallback: FourStops,
+    override_stops: Option<FourStops>,
+    height: f32,
+    alpha: f32,
+) -> AnyElement {
+    div()
+        .w_full()
+        .h(px(height))
         .child(
-            div().flex_1().h_full().bg(linear_gradient(
-                90.0,
-                linear_color_stop(rgb_to_hsla(stops[1], alpha), 0.0),
-                linear_color_stop(rgb_to_hsla(stops[2], alpha), 1.0),
-            )),
-        )
-        .child(
-            div().flex_1().h_full().bg(linear_gradient(
-                90.0,
-                linear_color_stop(rgb_to_hsla(stops[2], alpha), 0.0),
-                linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
-            )),
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, (), window, cx| {
+                    let stops = ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
+                        .map(|(s, _)| s)
+                        .unwrap_or(fallback);
+                    paint_gradient_bar_canvas(bounds, height, stops, alpha, window);
+                },
+            )
+            .size_full(),
         )
         .into_any_element()
 }
@@ -62,6 +91,160 @@ fn render_orb(stops: FourStops, size_px: f32, alpha: f32) -> AnyElement {
             linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
         ))
         .into_any_element()
+}
+
+fn render_live_orb(
+    fallback: FourStops,
+    override_stops: Option<FourStops>,
+    size_px: f32,
+    alpha: f32,
+) -> AnyElement {
+    div()
+        .size(px(size_px))
+        .flex_shrink_0()
+        .child(
+            canvas(
+                |_, _, _| (),
+                move |bounds: Bounds<Pixels>, (), window, cx| {
+                    let stops = ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
+                        .map(|(s, _)| s)
+                        .unwrap_or(fallback);
+                    window.paint_quad(quad(
+                        bounds,
+                        Corners::all(px(size_px * 0.5)),
+                        linear_gradient(
+                            135.0,
+                            linear_color_stop(rgb_to_hsla(stops[0], alpha), 0.0),
+                            linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
+                        ),
+                        Edges::default(),
+                        transparent_black(),
+                        BorderStyle::Solid,
+                    ));
+                },
+            )
+            .size_full(),
+        )
+        .into_any_element()
+}
+
+#[derive(IntoElement)]
+struct StudioPillTrigger {
+    id: ElementId,
+    label: SharedString,
+    palette_name: SharedString,
+    enabled: bool,
+    stops: FourStops,
+    is_light: bool,
+    studio_bg: Hsla,
+    studio_border: Hsla,
+    selected: bool,
+    cursor_style: CursorStyle,
+    on_click: Option<Box<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+}
+
+impl StudioPillTrigger {
+    fn new(
+        id: impl Into<ElementId>,
+        label: impl Into<SharedString>,
+        palette_name: impl Into<SharedString>,
+        enabled: bool,
+        stops: FourStops,
+        is_light: bool,
+        studio_bg: Hsla,
+        studio_border: Hsla,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            palette_name: palette_name.into(),
+            enabled,
+            stops,
+            is_light,
+            studio_bg,
+            studio_border,
+            selected: false,
+            cursor_style: CursorStyle::PointingHand,
+            on_click: None,
+        }
+    }
+}
+
+impl Clickable for StudioPillTrigger {
+    fn on_click(mut self, handler: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        self.on_click = Some(Box::new(handler));
+        self
+    }
+
+    fn cursor_style(mut self, cursor_style: CursorStyle) -> Self {
+        self.cursor_style = cursor_style;
+        self
+    }
+}
+
+impl Toggleable for StudioPillTrigger {
+    fn toggle_state(mut self, selected: bool) -> Self {
+        self.selected = selected;
+        self
+    }
+}
+
+impl RenderOnce for StudioPillTrigger {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let studio_frame = self
+            .enabled
+            .then(|| {
+                let wash = if self.selected {
+                    if self.is_light { 0.24 } else { 0.30 }
+                } else if self.is_light {
+                    0.18
+                } else {
+                    0.24
+                };
+                let b_alpha = if self.selected { 0.96 } else { 0.88 };
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None, 10.0, 1.25, 0.0, 0.0, false, wash, b_alpha, cx,
+                )
+            })
+            .flatten();
+        let has_studio_frame = studio_frame.is_some();
+        let palette_name = self.palette_name;
+
+        h_flex()
+            .id(self.id)
+            .relative()
+            .cursor(self.cursor_style)
+            .gap_1()
+            .px_2()
+            .py(px(1.5))
+            .rounded_full()
+            .children(studio_frame)
+            .when(!has_studio_frame, |this| {
+                this.border_1()
+                    .border_color(self.studio_border)
+                    .bg(self.studio_bg)
+            })
+            .items_center()
+            .when(!self.selected, |this| {
+                this.tooltip(move |_window, cx| {
+                    Tooltip::for_action(
+                        format!("Gradient Studio ({palette_name})"),
+                        &ToggleStudio,
+                        cx,
+                    )
+                })
+            })
+            .when_some(self.on_click, |this, handler| {
+                this.on_click(move |event, window, cx| handler(event, window, cx))
+            })
+            .child(div().relative().child(render_live_orb(
+                self.stops,
+                None,
+                10.0,
+                if self.enabled { 0.95 } else { 0.35 },
+            )))
+            .child(div().relative().child(Label::new(self.label).size(LabelSize::XSmall)))
+    }
 }
 
 fn pill_colors(is_light: bool, active: bool, accent: Hsla) -> (Hsla, Hsla, Hsla) {
@@ -199,8 +382,9 @@ impl Render for GradientStudioButton {
                         div()
                             .w(px(28.))
                             .h(px(7.))
-                            .child(render_gradient_bar(
+                            .child(render_live_gradient_bar(
                                 stops,
+                                None,
                                 7.0,
                                 if enabled { 0.92 } else { 0.30 },
                             )),
@@ -258,55 +442,21 @@ impl Render for GradientStudioButton {
             "Studio (Off)".into()
         };
 
-        let studio_frame = enabled
-            .then(|| {
-                ui::gradient_chrome::render_gradient_frame_canvas(
-                    None,
-                    10.0,
-                    1.25,
-                    0.0,
-                    0.0,
-                    false,
-                    if is_light { 0.18 } else { 0.24 },
-                    0.88,
-                    cx,
-                )
-            })
-            .flatten();
-        let has_studio_frame = studio_frame.is_some();
-
-        let studio_trigger = ButtonLike::new("gradient-studio-trigger")
-            .style(ButtonStyle::Transparent)
-            .child(
-                h_flex()
-                    .relative()
-                    .gap_1()
-                    .px_1p5()
-                    .py(px(1.))
-                    .rounded_full()
-                    .children(studio_frame)
-                    .when(!has_studio_frame, |this| {
-                        this.border_1().border_color(studio_border).bg(studio_bg)
-                    })
-                    .items_center()
-                    .child(div().relative().child(render_orb(
-                        stops,
-                        10.0,
-                        if enabled { 0.95 } else { 0.35 },
-                    )))
-                    .child(div().relative().child(Label::new(studio_label).size(LabelSize::XSmall))),
-            );
+        let studio_trigger = StudioPillTrigger::new(
+            "gradient-studio-trigger",
+            studio_label,
+            palette_name,
+            enabled,
+            stops,
+            is_light,
+            studio_bg,
+            studio_border,
+        );
 
         let popover_menu = PopoverMenu::new("gradient-studio-menu")
             .anchor(Anchor::BottomRight)
             .with_handle(self.popover_handle.clone())
-            .trigger_with_tooltip(studio_trigger, move |_window, cx| {
-                Tooltip::for_action(
-                    format!("Gradient Studio ({palette_name})"),
-                    &ToggleStudio,
-                    cx,
-                )
-            })
+            .trigger(studio_trigger)
             .menu(|_window, cx| Some(cx.new(GradientStudioPopover::new)));
 
         h_flex()
@@ -573,9 +723,7 @@ impl GradientStudioPopover {
                 div()
                     .w_full()
                     .h(px(7.))
-                    .rounded_full()
-                    .overflow_hidden()
-                    .child(render_gradient_bar(track_stops, 7.0, 0.92)),
+                    .child(render_live_gradient_bar(track_stops, None, 7.0, 0.92)),
             )
             // Crisp white circular thumb with colored ring
             .child(
@@ -981,7 +1129,12 @@ impl Render for GradientStudioPopover {
                                         h_flex()
                                             .gap_2()
                                             .items_center()
-                                            .child(render_orb(active_stops, 20.0, 0.96))
+                                            .child(render_live_orb(
+                                                active_stops,
+                                                active_scope.map(|_| active_stops),
+                                                20.0,
+                                                0.96,
+                                            ))
                                             .child(
                                                 div()
                                                     .font_weight(FontWeight::SEMIBOLD)
@@ -1067,27 +1220,25 @@ impl Render for GradientStudioPopover {
                                                 } else {
                                                     rgba(0xffffff26).into()
                                                 };
-                                                let track_border: Hsla = if enabled {
-                                                    rgba(0xffffff55).into()
-                                                } else {
-                                                    glass_border
-                                                };
+                                                let active_override =
+                                                    active_scope.map(|_| active_stops);
                                                 div()
                                                     .id("studio-hdr-mode")
                                                     .relative()
                                                     .cursor_pointer()
                                                     .w(px(36.))
                                                     .h(px(20.))
-                                                    .px(px(2.5))
+                                                    .px(px(3.))
                                                     .flex()
                                                     .items_center()
                                                     .when(enabled, |this| this.justify_end())
                                                     .when(!enabled, |this| this.justify_start())
                                                     .rounded_full()
-                                                    .border_1()
-                                                    .border_color(track_border)
-                                                    .when(!enabled, |this| this.bg(off_track_bg))
-                                                    .overflow_hidden()
+                                                    .when(!enabled, |this| {
+                                                        this.border_1()
+                                                            .border_color(glass_border)
+                                                            .bg(off_track_bg)
+                                                    })
                                                     .tooltip(Tooltip::text(if enabled {
                                                         "Gradient Overlay: On (click to turn off)"
                                                     } else {
@@ -1101,10 +1252,11 @@ impl Render for GradientStudioPopover {
                                                             div()
                                                                 .absolute()
                                                                 .inset_0()
-                                                                .child(render_gradient_bar(
+                                                                .child(render_live_gradient_bar(
                                                                     active_stops,
+                                                                    active_override,
                                                                     20.0,
-                                                                    0.92,
+                                                                    0.94,
                                                                 )),
                                                         )
                                                     })
@@ -1323,7 +1475,7 @@ impl Render for GradientStudioPopover {
                                                 h_flex()
                                                     .gap_1()
                                                     .items_center()
-                                                    .child(render_orb(stops, 8.0, 0.95))
+                                                    .child(render_live_orb(stops, None, 8.0, 0.95))
                                                     .child(
                                                         Label::new("All")
                                                             .size(LabelSize::XSmall)
@@ -1785,7 +1937,12 @@ impl Render for GradientStudioPopover {
                                     ),
                             )
                             // Thin live preview bar
-                            .child(render_gradient_bar(active_stops, 5.0, 0.94))
+                            .child(render_live_gradient_bar(
+                                active_stops,
+                                active_scope.map(|_| active_stops),
+                                5.0,
+                                0.94,
+                            ))
                             // 4 large rounded color swatch pills (click to edit via HSL sliders!)
                             .child(
                                 h_flex()

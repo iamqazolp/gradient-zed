@@ -5689,7 +5689,7 @@ impl ThreadView {
             );
 
         let composer_body = if gradient_on {
-            workspace::gradient_studio::wrap_static_solid_gradient_frame(
+            workspace::gradient_studio::wrap_breathing_solid_gradient_frame(
                 Some(workspace::gradient_studio::PanelRegion::RightDock),
                 12.0,
                 1.5,
@@ -7564,7 +7564,7 @@ impl ThreadView {
                                         .child(editor.clone().into_any_element())
                                         .into_any_element();
                                     if editing {
-                                        workspace::gradient_studio::wrap_static_solid_gradient_frame(
+                                        workspace::gradient_studio::wrap_breathing_solid_gradient_frame(
                                             Some(workspace::gradient_studio::PanelRegion::RightDock),
                                             10.0,
                                             1.5,

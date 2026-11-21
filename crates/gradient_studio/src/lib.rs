@@ -8,8 +8,8 @@ use gpui::{App, actions};
 
 pub use overlay::{
     GradientEdge, render_aurora_overlay, render_gradient_divider, render_gradient_edge,
-    render_studio_card_backdrop, render_zoomed_aurora_backdrop, wrap_gradient_frame,
-    wrap_static_solid_gradient_frame,
+    render_studio_card_backdrop, render_zoomed_aurora_backdrop, wrap_breathing_solid_gradient_frame,
+    wrap_gradient_frame, wrap_static_solid_gradient_frame,
 };
 pub use palettes::{
     CURATED_PALETTES, CuratedPalette, CustomPalette, DEFAULT_PALETTE_NAME, DEFAULT_STOPS,

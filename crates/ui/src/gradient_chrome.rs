@@ -166,6 +166,19 @@ pub fn is_enabled(cx: &App) -> bool {
         .is_some_and(|s| s.enabled)
 }
 
+/// Evaluates the current live breathing `(stops, pulse)` snapshot for a window.
+pub fn live_stops_and_pulse(
+    override_stops: Option<FourStops>,
+    window: &Window,
+    cx: &App,
+) -> Option<(FourStops, f32)> {
+    let state = cx.try_global::<GradientChromeState>()?;
+    if !state.enabled {
+        return None;
+    }
+    Some(state.live_stops_and_pulse(override_stops, window.is_window_active()))
+}
+
 pub fn canvas_background(cx: &App) -> Hsla {
     if let Some(state) = cx.try_global::<GradientChromeState>() {
         state.canvas_bg
@@ -587,6 +600,7 @@ fn render_gradient_frame_canvas_inner(
     inset_x_px: f32,
     inset_y_px: f32,
     solid_inner: bool,
+    opaque_solid_wash: bool,
     sticky_opaque: bool,
     breathing: bool,
     inner_wash_alpha: f32,
@@ -622,7 +636,7 @@ fn render_gradient_frame_canvas_inner(
                 } else {
                     (override_stops.unwrap_or(state.stops), 1.0)
                 };
-                let (inner_bg, base_wash) = if solid_inner && !breathing {
+                let (inner_bg, base_wash) = if opaque_solid_wash || (solid_inner && !breathing) {
                     let mut solid = state.canvas_bg;
                     solid.a = 1.0;
                     (solid, inner_wash_alpha)
@@ -697,6 +711,35 @@ pub fn render_gradient_frame_canvas(
         inset_y_px,
         solid_inner,
         false,
+        false,
+        true,
+        inner_wash_alpha,
+        border_alpha,
+        cx,
+    )
+}
+
+/// Mounts a **breathing** rounded 4-color gradient frame with a solid opaque `canvas_bg` (`a = 1.0`)
+/// backing plus a live-breathing 4-color inner wash for chatboxes and composers.
+pub fn render_breathing_solid_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    inner_wash_alpha: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    render_gradient_frame_canvas_inner(
+        override_stops,
+        radius_px,
+        border_px,
+        inset_x_px,
+        inset_y_px,
+        true,
+        true,
+        false,
         true,
         inner_wash_alpha,
         border_alpha,
@@ -723,6 +766,7 @@ pub fn render_sticky_gradient_frame_canvas(
         inset_x_px,
         inset_y_px,
         false,
+        false,
         true,
         true,
         inner_wash_alpha,
@@ -732,7 +776,7 @@ pub fn render_sticky_gradient_frame_canvas(
 }
 
 /// Mounts a **non-breathing**, rounded 4-color gradient frame with a **solid** inner backing
-/// (`canvas_bg`, alpha 1.0) plus a static inner 4-color gradient wash for chatboxes/composers.
+/// (`canvas_bg`, alpha 1.0) plus a static inner 4-color gradient wash.
 pub fn render_static_gradient_frame_canvas(
     override_stops: Option<FourStops>,
     radius_px: f32,
@@ -749,6 +793,7 @@ pub fn render_static_gradient_frame_canvas(
         border_px,
         inset_x_px,
         inset_y_px,
+        true,
         true,
         false,
         false,
