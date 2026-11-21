@@ -75,7 +75,7 @@ jobs:
                   --base gradient-zed \
                   --head "${SYNC_BRANCH}" \
                   --title "chore: sync upstream Zed ${LATEST_TAG}" \
-                  --body "Automated upstream sync from \`zed-industries/zed\` \`${LATEST_TAG}\`. Merge this PR and tag \`gradient-${LATEST_TAG}\` to publish the updated Gradient Zed build."
+                  --body "Automated upstream sync from \`zed-industries/zed\` \`${LATEST_TAG}\`. Merge this PR to automatically build and publish the updated \`gradient-${LATEST_TAG}\` GitHub Release."
               fi
             else
               echo "Push failed (likely upstream changes in .github/workflows requiring local merge)."

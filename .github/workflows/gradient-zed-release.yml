@@ -2,6 +2,10 @@ name: Build & Release Gradient Zed
 
 on:
   push:
+    branches:
+      - gradient-zed
+    paths:
+      - 'crates/zed/Cargo.toml'
     tags:
       - 'gradient-v*'
   workflow_dispatch:
@@ -165,7 +169,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/gradient-v') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
+        if: startsWith(github.ref, 'refs/tags/gradient-v') || (github.event_name == 'push' && github.ref == 'refs/heads/gradient-zed') || (github.event_name == 'workflow_dispatch' && inputs.create_release == true)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
