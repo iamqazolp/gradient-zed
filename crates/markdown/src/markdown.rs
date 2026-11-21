@@ -3904,11 +3904,11 @@ struct MarkdownHighlights {
 
 impl MarkdownHighlights {
     /// Returns the highlighted ranges intersecting the given source range,
-    /// clamped to it, in paint order.
+    /// clamped to it, in paint order: `(range, fallback_color, is_selection)`.
     fn highlights_for_line(
         &mut self,
         source_range: Range<usize>,
-    ) -> SmallVec<[(Range<usize>, Hsla); 1]> {
+    ) -> SmallVec<[(Range<usize>, Hsla, bool); 1]> {
         let mut highlights = SmallVec::new();
 
         self.next_search_highlight_ix += self.search_highlights[self.next_search_highlight_ix..]
@@ -3932,13 +3932,13 @@ impl MarkdownHighlights {
                 } else {
                     self.search_match_color
                 };
-                highlights.push((clamped, color));
+                highlights.push((clamped, color, false));
             }
         }
         if let Some((range, color)) = &self.selection {
             let clamped = range.start.max(source_range.start)..range.end.min(source_range.end);
             if clamped.start < clamped.end {
-                highlights.push((clamped, *color));
+                highlights.push((clamped, *color, true));
             }
         }
         highlights
@@ -4518,7 +4518,7 @@ impl Element for RenderedLineElement {
         let layout = self.text.layout();
         self.line.paint_code_chips(window);
         layout.paint_background(window, cx).log_err();
-        self.line.paint_highlights(window);
+        self.line.paint_highlights(window, cx);
         layout.paint_foreground(window, cx).log_err();
     }
 }
@@ -4530,8 +4530,8 @@ struct RenderedLine {
     source_end: usize,
     language: Option<Arc<Language>>,
     text_align: TextAlign,
-    /// Highlighted source ranges intersecting this line, in paint order
-    highlights: SmallVec<[(Range<usize>, Hsla); 1]>,
+    /// Highlighted source ranges intersecting this line, in paint order: `(range, color, is_selection)`
+    highlights: SmallVec<[(Range<usize>, Hsla, bool); 1]>,
     /// Inline code chip ranges intersecting this line, in rendered indices
     code_chips: SmallVec<[(Range<usize>, Hsla); 1]>,
 }
@@ -4585,7 +4585,7 @@ impl RenderedLine {
 
     /// Painted between the text run backgrounds and the glyphs, so opaque highlight
     /// colors neither hide the text nor get hidden by run backgrounds
-    fn paint_highlights(&self, window: &mut Window) {
+    fn paint_highlights(&self, window: &mut Window, cx: &App) {
         if self.highlights.is_empty() {
             return;
         }
@@ -4594,11 +4594,16 @@ impl RenderedLine {
             return;
         }
 
-        for (source_range, color) in &self.highlights {
+        for (source_range, color, is_selection) in &self.highlights {
             self.for_each_bounds_in_source_range(
                 &wrapped_line_segments,
                 source_range.clone(),
                 |bounds| {
+                    if *is_selection
+                        && ui::gradient_chrome::paint_markdown_selection_quad(bounds, window, cx)
+                    {
+                        return;
+                    }
                     window.paint_quad(quad(
                         bounds,
                         Pixels::ZERO,

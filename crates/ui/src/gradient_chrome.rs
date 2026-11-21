@@ -240,6 +240,26 @@ pub fn markdown_selection_tint_live(window: &Window, cx: &App) -> Option<Hsla> {
     Some(rgb_to_hsla(stops[3], alpha))
 }
 
+/// Paints a live-breathing 4-stop horizontal gradient selection highlight for Markdown text spans.
+pub fn paint_markdown_selection_quad(
+    bounds: Bounds<Pixels>,
+    window: &mut Window,
+    cx: &App,
+) -> bool {
+    let Some(state) = cx.try_global::<GradientChromeState>() else {
+        return false;
+    };
+    if !state.enabled {
+        return false;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let base_a = if state.is_light { 0.28 } else { 0.34 };
+    let a0 = (base_a * pulse).clamp(0.14, 0.50);
+    let a1 = ((base_a + 0.03) * pulse).clamp(0.14, 0.54);
+    paint_rounded_four_stop_band(bounds, px(3.0), stops, [a0, a1, a1, a0], true, window);
+    true
+}
+
 /// Paints a pixel-snapped, zero-seam 4-stop gradient rectangle with **native GPU SDF rounded
 /// corners** (`gpui::quad` + `Corners`), eliminating both rectangular corner poke-outs and
 /// overlapping 1/3 vertical seam lines.
