@@ -131,14 +131,43 @@ impl Render for GradientStudioButton {
         let (breathe_bg, breathe_border, breathe_hover) = pill_colors(is_light, breathe, accent);
         let (studio_bg, studio_border, _) = pill_colors(is_light, enabled, accent);
 
+        let roll_hover_frame = enabled
+            .then(|| {
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None,
+                    10.0,
+                    1.25,
+                    0.0,
+                    0.0,
+                    false,
+                    if is_light { 0.14 } else { 0.18 },
+                    0.82,
+                    cx,
+                )
+            })
+            .flatten();
+
         // 1. Roll button + mini 4-stop rainbow pill bar (matches VS Code status bar!)
         let roll_btn = div()
             .id("gradient-roll-btn")
+            .relative()
+            .group("gradient-roll-btn")
             .cursor_pointer()
             .px_1p5()
             .py(px(2.))
             .rounded_full()
-            .hover(|s| s.bg(cx.theme().colors().element_hover))
+            .when(!enabled, |this| {
+                this.hover(|s| s.bg(cx.theme().colors().element_hover))
+            })
+            .when_some(roll_hover_frame, |this, frame| {
+                this.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .visible_on_hover("gradient-roll-btn")
+                        .child(frame),
+                )
+            })
             .on_mouse_down(MouseButton::Left, |event, _window, cx| {
                 if event.modifiers.shift {
                     update_state(cx, |state| state.toggle_enabled());
@@ -158,6 +187,7 @@ impl Render for GradientStudioButton {
             })
             .child(
                 h_flex()
+                    .relative()
                     .gap_1p5()
                     .items_center()
                     .child(
@@ -177,25 +207,48 @@ impl Render for GradientStudioButton {
                     ),
             );
 
+        let breathe_frame = enabled
+            .then(|| {
+                let wash = if breathe {
+                    if is_light { 0.24 } else { 0.30 }
+                } else if is_light {
+                    0.10
+                } else {
+                    0.14
+                };
+                let b_alpha = if breathe { 0.94 } else { 0.68 };
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None, 10.0, 1.25, 0.0, 0.0, false, wash, b_alpha, cx,
+                )
+            })
+            .flatten();
+        let has_breathe_frame = breathe_frame.is_some();
+
         // 2. Dedicated Breathe pill in status bar (matches VS Code status bar!)
         let breathe_btn = div()
             .id("gradient-status-breathe")
+            .relative()
             .cursor_pointer()
             .px_2()
             .py(px(1.))
             .rounded_full()
-            .border_1()
-            .border_color(breathe_border)
-            .bg(breathe_bg)
-            .hover(move |s| s.bg(breathe_hover))
+            .children(breathe_frame)
+            .when(!has_breathe_frame, |this| {
+                this.border_1()
+                    .border_color(breathe_border)
+                    .bg(breathe_bg)
+                    .hover(move |s| s.bg(breathe_hover))
+            })
             .on_mouse_down(MouseButton::Left, |_event, _window, cx| {
                 update_state(cx, |state| state.toggle_breathe());
             })
             .tooltip(|_window, cx| Tooltip::for_action("Toggle Breathing Aurora", &ToggleBreathe, cx))
             .child(
-                Label::new("Breathe")
-                    .size(LabelSize::XSmall)
-                    .color(if breathe { Color::Accent } else { Color::Default }),
+                div().relative().child(
+                    Label::new("Breathe")
+                        .size(LabelSize::XSmall)
+                        .color(if breathe { Color::Accent } else { Color::Default }),
+                ),
             );
 
         // 3. Studio ▴ pill trigger with glowing orb
@@ -205,20 +258,43 @@ impl Render for GradientStudioButton {
             "Studio (Off)".into()
         };
 
+        let studio_frame = enabled
+            .then(|| {
+                ui::gradient_chrome::render_gradient_frame_canvas(
+                    None,
+                    10.0,
+                    1.25,
+                    0.0,
+                    0.0,
+                    false,
+                    if is_light { 0.18 } else { 0.24 },
+                    0.88,
+                    cx,
+                )
+            })
+            .flatten();
+        let has_studio_frame = studio_frame.is_some();
+
         let studio_trigger = ButtonLike::new("gradient-studio-trigger")
-            .style(ButtonStyle::Subtle)
+            .style(ButtonStyle::Transparent)
             .child(
                 h_flex()
+                    .relative()
                     .gap_1()
                     .px_1p5()
                     .py(px(1.))
                     .rounded_full()
-                    .border_1()
-                    .border_color(studio_border)
-                    .bg(studio_bg)
+                    .children(studio_frame)
+                    .when(!has_studio_frame, |this| {
+                        this.border_1().border_color(studio_border).bg(studio_bg)
+                    })
                     .items_center()
-                    .child(render_orb(stops, 10.0, if enabled { 0.95 } else { 0.35 }))
-                    .child(Label::new(studio_label).size(LabelSize::XSmall)),
+                    .child(div().relative().child(render_orb(
+                        stops,
+                        10.0,
+                        if enabled { 0.95 } else { 0.35 },
+                    )))
+                    .child(div().relative().child(Label::new(studio_label).size(LabelSize::XSmall))),
             );
 
         let popover_menu = PopoverMenu::new("gradient-studio-menu")
@@ -686,7 +762,6 @@ impl Render for GradientStudioPopover {
         let (breathe_pill_bg, breathe_pill_border, breathe_pill_hover) =
             pill_colors(is_light, breathe, accent);
         let (roll_bg, roll_border, roll_hover) = pill_colors(is_light, false, accent);
-        let (mode_bg, mode_border, mode_hover) = pill_colors(is_light, enabled, accent);
         let (seamless_bg, seamless_border, seamless_hover) =
             pill_colors(is_light, seamless, accent);
 
@@ -917,30 +992,57 @@ impl Render for GradientStudioPopover {
                                         h_flex()
                                             .gap_1p5()
                                             .items_center()
-                                            .child(
+                                            .child({
+                                                let hdr_breathe_frame = enabled
+                                                    .then(|| {
+                                                        let wash = if breathe {
+                                                            if is_light { 0.24 } else { 0.30 }
+                                                        } else if is_light {
+                                                            0.10
+                                                        } else {
+                                                            0.14
+                                                        };
+                                                        let b_alpha =
+                                                            if breathe { 0.94 } else { 0.68 };
+                                                        ui::gradient_chrome::render_gradient_frame_canvas(
+                                                            None, 12.0, 1.25, 0.0, 0.0, false,
+                                                            wash, b_alpha, cx,
+                                                        )
+                                                    })
+                                                    .flatten();
+                                                let has_hdr_breathe_frame =
+                                                    hdr_breathe_frame.is_some();
                                                 div()
                                                     .id("studio-hdr-breathe")
+                                                    .relative()
                                                     .cursor_pointer()
                                                     .px_2p5()
                                                     .py(px(4.))
                                                     .rounded_full()
-                                                    .border_1()
-                                                    .border_color(breathe_pill_border)
-                                                    .bg(breathe_pill_bg)
-                                                    .hover(move |s| s.bg(breathe_pill_hover))
+                                                    .children(hdr_breathe_frame)
+                                                    .when(!has_hdr_breathe_frame, |this| {
+                                                        this.border_1()
+                                                            .border_color(breathe_pill_border)
+                                                            .bg(breathe_pill_bg)
+                                                            .hover(move |s| {
+                                                                s.bg(breathe_pill_hover)
+                                                            })
+                                                    })
                                                     .on_click(|_, _, cx| {
                                                         update_state(cx, |s| s.toggle_breathe())
                                                     })
                                                     .child(
-                                                        Label::new("Breathe")
-                                                            .size(LabelSize::Small)
-                                                            .color(if breathe {
-                                                                Color::Accent
-                                                            } else {
-                                                                Color::Default
-                                                            }),
-                                                    ),
-                                            )
+                                                        div().relative().child(
+                                                            Label::new("Breathe")
+                                                                .size(LabelSize::Small)
+                                                                .color(if breathe {
+                                                                    Color::Accent
+                                                                } else {
+                                                                    Color::Default
+                                                                }),
+                                                        ),
+                                                    )
+                                            })
                                             .child(
                                                 div()
                                                     .id("studio-hdr-roll")
@@ -959,34 +1061,62 @@ impl Render for GradientStudioPopover {
                                                     })
                                                     .child(Label::new("↻ Roll").size(LabelSize::Small)),
                                             )
-                                            .child(
+                                            .child({
+                                                let off_track_bg: Hsla = if is_light {
+                                                    rgba(0x0f172a28).into()
+                                                } else {
+                                                    rgba(0xffffff26).into()
+                                                };
+                                                let track_border: Hsla = if enabled {
+                                                    rgba(0xffffff55).into()
+                                                } else {
+                                                    glass_border
+                                                };
                                                 div()
                                                     .id("studio-hdr-mode")
+                                                    .relative()
                                                     .cursor_pointer()
-                                                    .px_2p5()
-                                                    .py(px(4.))
+                                                    .w(px(36.))
+                                                    .h(px(20.))
+                                                    .px(px(2.5))
+                                                    .flex()
+                                                    .items_center()
+                                                    .when(enabled, |this| this.justify_end())
+                                                    .when(!enabled, |this| this.justify_start())
                                                     .rounded_full()
                                                     .border_1()
-                                                    .border_color(mode_border)
-                                                    .bg(mode_bg)
-                                                    .hover(move |s| s.bg(mode_hover))
+                                                    .border_color(track_border)
+                                                    .when(!enabled, |this| this.bg(off_track_bg))
+                                                    .overflow_hidden()
+                                                    .tooltip(Tooltip::text(if enabled {
+                                                        "Gradient Overlay: On (click to turn off)"
+                                                    } else {
+                                                        "Gradient Overlay: Off (click to turn on)"
+                                                    }))
                                                     .on_click(|_, _, cx| {
                                                         update_state(cx, |s| s.toggle_enabled())
                                                     })
+                                                    .when(enabled, |this| {
+                                                        this.child(
+                                                            div()
+                                                                .absolute()
+                                                                .inset_0()
+                                                                .child(render_gradient_bar(
+                                                                    active_stops,
+                                                                    20.0,
+                                                                    0.92,
+                                                                )),
+                                                        )
+                                                    })
                                                     .child(
-                                                        Label::new(if enabled {
-                                                            "Mode"
-                                                        } else {
-                                                            "Off"
-                                                        })
-                                                        .size(LabelSize::Small)
-                                                        .color(if enabled {
-                                                            Color::Default
-                                                        } else {
-                                                            Color::Muted
-                                                        }),
-                                                    ),
-                                            )
+                                                        div()
+                                                            .relative()
+                                                            .size(px(14.))
+                                                            .rounded_full()
+                                                            .bg(rgb(0xffffff))
+                                                            .shadow_sm(),
+                                                    )
+                                            })
                                             .child(
                                                 div()
                                                     .id("studio-hdr-close")

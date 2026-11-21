@@ -219,11 +219,21 @@ where
 {
     let app = (*cx).borrow();
     let ui_font = theme::theme_settings(app).ui_font(app).clone();
+    let gradient_frame = crate::gradient_chrome::render_sticky_gradient_frame_canvas(
+        None, 8.0, 1.25, 0.0, 0.0, 0.14, 0.84, app,
+    );
+    let has_gradient = gradient_frame.is_some();
 
     // padding to avoid tooltip appearing right below the mouse cursor
     div().pl_2().pt_2p5().child(
         v_flex()
-            .elevation_2(app)
+            .relative()
+            .when(has_gradient, |this| {
+                this.rounded_lg()
+                    .shadow(crate::ElevationIndex::ElevatedSurface.shadow(app))
+                    .children(gradient_frame)
+            })
+            .when(!has_gradient, |this| this.elevation_2(app))
             .font(ui_font)
             .text_ui(app)
             .text_color(app.theme().colors().text)

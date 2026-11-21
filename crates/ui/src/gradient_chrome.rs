@@ -504,6 +504,62 @@ pub fn paint_text_cursor_quad(
     true
 }
 
+/// Paints a frosted-opaque 4-color gradient frame for sticky headers and elevated overlays so
+/// scrolling content behind them is cleanly masked while preserving the live gradient theme.
+pub fn paint_sticky_top_frame(
+    bounds: Bounds<Pixels>,
+    radius_px: f32,
+    border_px: f32,
+    inner_wash_alpha: f32,
+    border_alpha: f32,
+    window: &mut Window,
+    cx: &App,
+) -> bool {
+    let Some(state) = cx.try_global::<GradientChromeState>() else {
+        return false;
+    };
+    if !state.enabled {
+        return false;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let inner_bg = state
+        .canvas_bg
+        .opacity(if state.is_light { 0.90 } else { 0.92 });
+    let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
+    let w_alpha = (inner_wash_alpha * pulse).clamp(0.0, 0.45);
+    paint_rounded_gradient_frame(
+        bounds,
+        radius_px,
+        border_px,
+        stops,
+        b_alpha,
+        inner_bg,
+        w_alpha,
+        window,
+    );
+    true
+}
+
+/// Paints a soft directional 4-stop gradient hover highlight over a row or sticky header line.
+pub fn paint_gradient_hover_band(
+    bounds: Bounds<Pixels>,
+    radius_px: f32,
+    alpha: f32,
+    window: &mut Window,
+    cx: &App,
+) -> bool {
+    let Some(state) = cx.try_global::<GradientChromeState>() else {
+        return false;
+    };
+    if !state.enabled {
+        return false;
+    }
+    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+    let a = (alpha * pulse).clamp(0.0, 0.45);
+    paint_rounded_four_stop_band(bounds, px(radius_px), stops, [a, a * 0.85, a * 0.85, a], true, window);
+    true
+}
+
 fn render_gradient_frame_canvas_inner(
     override_stops: Option<FourStops>,
     radius_px: f32,
@@ -511,6 +567,7 @@ fn render_gradient_frame_canvas_inner(
     inset_x_px: f32,
     inset_y_px: f32,
     solid_inner: bool,
+    sticky_opaque: bool,
     breathing: bool,
     inner_wash_alpha: f32,
     border_alpha: f32,
@@ -548,7 +605,12 @@ fn render_gradient_frame_canvas_inner(
                 let (inner_bg, base_wash) = if solid_inner && !breathing {
                     let mut solid = state.canvas_bg;
                     solid.a = 1.0;
-                    (solid, 0.0)
+                    (solid, inner_wash_alpha)
+                } else if sticky_opaque {
+                    let masked = state
+                        .canvas_bg
+                        .opacity(if state.is_light { 0.90 } else { 0.92 });
+                    (masked, inner_wash_alpha)
                 } else if solid_inner {
                     // Frosted translucent card for code/mermaid blocks so they don't look like
                     // glaring opaque white slabs while preserving crisp syntax contrast.
@@ -614,6 +676,7 @@ pub fn render_gradient_frame_canvas(
         inset_x_px,
         inset_y_px,
         solid_inner,
+        false,
         true,
         inner_wash_alpha,
         border_alpha,
@@ -621,14 +684,42 @@ pub fn render_gradient_frame_canvas(
     )
 }
 
-/// Mounts a **non-breathing**, rounded 4-color gradient frame with a **solid** inner background
-/// (`canvas_bg`, alpha 1.0, zero inner wash) for textboxes and search inputs.
-pub fn render_static_solid_gradient_frame_canvas(
+/// Mounts a frosted-opaque, live-breathing rounded 4-color gradient frame for sticky top headers
+/// and elevated tooltips so underlying scrolled text stays cleanly masked.
+pub fn render_sticky_gradient_frame_canvas(
     override_stops: Option<FourStops>,
     radius_px: f32,
     border_px: f32,
     inset_x_px: f32,
     inset_y_px: f32,
+    inner_wash_alpha: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    render_gradient_frame_canvas_inner(
+        override_stops,
+        radius_px,
+        border_px,
+        inset_x_px,
+        inset_y_px,
+        false,
+        true,
+        true,
+        inner_wash_alpha,
+        border_alpha,
+        cx,
+    )
+}
+
+/// Mounts a **non-breathing**, rounded 4-color gradient frame with a **solid** inner backing
+/// (`canvas_bg`, alpha 1.0) plus a static inner 4-color gradient wash for chatboxes/composers.
+pub fn render_static_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    inner_wash_alpha: f32,
     border_alpha: f32,
     cx: &App,
 ) -> Option<AnyElement> {
@@ -640,6 +731,30 @@ pub fn render_static_solid_gradient_frame_canvas(
         inset_y_px,
         true,
         false,
+        false,
+        inner_wash_alpha,
+        border_alpha,
+        cx,
+    )
+}
+
+/// Mounts a **non-breathing**, rounded 4-color gradient frame with a **solid** inner background
+/// (`canvas_bg`, alpha 1.0, zero inner wash) for compact textboxes and search inputs.
+pub fn render_static_solid_gradient_frame_canvas(
+    override_stops: Option<FourStops>,
+    radius_px: f32,
+    border_px: f32,
+    inset_x_px: f32,
+    inset_y_px: f32,
+    border_alpha: f32,
+    cx: &App,
+) -> Option<AnyElement> {
+    render_static_gradient_frame_canvas(
+        override_stops,
+        radius_px,
+        border_px,
+        inset_x_px,
+        inset_y_px,
         0.0,
         border_alpha,
         cx,

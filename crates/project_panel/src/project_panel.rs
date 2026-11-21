@@ -6248,15 +6248,33 @@ impl ProjectPanel {
                     .into_owned()
             });
 
-        let gradient_selected =
-            (is_active || is_marked) && !is_sticky && ui::gradient_chrome::is_enabled(cx);
-        let gradient_frame = gradient_selected
+        let gradient_chrome_on = ui::gradient_chrome::is_enabled(cx);
+        let gradient_selected = (is_active || is_marked) && !is_sticky && gradient_chrome_on;
+        let gradient_sticky = is_sticky && gradient_chrome_on;
+        let gradient_frame = if gradient_selected {
+            ui::gradient_chrome::render_gradient_frame_canvas(
+                None, 6.0, 1.5, 4.0, 1.0, false, 0.14, 0.86, cx,
+            )
+        } else if gradient_sticky {
+            ui::gradient_chrome::render_sticky_gradient_frame_canvas(
+                None, 6.0, 1.25, 4.0, 1.0, 0.16, 0.84, cx,
+            )
+        } else {
+            None
+        };
+        let gradient_hover_frame = (gradient_chrome_on && !gradient_selected)
             .then(|| {
+                let (wash, border) = if gradient_sticky {
+                    (0.24, 0.94)
+                } else {
+                    (0.14, 0.80)
+                };
                 ui::gradient_chrome::render_gradient_frame_canvas(
-                    None, 6.0, 1.5, 4.0, 1.0, false, 0.14, 0.86, cx,
+                    None, 6.0, 1.25, 4.0, 1.0, false, wash, border, cx,
                 )
             })
             .flatten();
+        let suppress_flat_bg = gradient_selected || gradient_sticky;
 
         div()
             .id(id.clone())
@@ -6280,22 +6298,32 @@ impl ProjectPanel {
             )
             .cursor_pointer()
             .rounded_none()
-            .bg(if gradient_selected {
+            .bg(if suppress_flat_bg {
                 gpui::transparent_black()
             } else {
                 bg_color
             })
             .border_1()
             .border_r_2()
-            .border_color(if gradient_selected {
+            .border_color(if gradient_chrome_on && validation_color_and_message.is_none() {
                 gpui::transparent_black()
             } else {
                 border_color
             })
-            .when(!gradient_selected, |this| {
+            .when(!gradient_chrome_on, |this| {
                 this.hover(|style| style.bg(bg_hover_color).border_color(border_hover_color))
             })
             .children(gradient_frame)
+            .when_some(gradient_hover_frame, |this, frame| {
+                this.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .invisible()
+                        .group_hover(GROUP_NAME, |style| style.visible())
+                        .child(frame),
+                )
+            })
             .when(is_sticky, |this| this.block_mouse_except_scroll())
             .when(!is_sticky, |this| {
                 this.when(

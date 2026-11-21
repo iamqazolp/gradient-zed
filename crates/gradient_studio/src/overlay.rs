@@ -245,12 +245,14 @@ fn wrap_gradient_frame_inner(
     let border_alpha = if is_light { 0.88 } else { 0.84 };
 
     let frame_canvas = if static_solid {
-        ui::gradient_chrome::render_static_solid_gradient_frame_canvas(
+        let inner_wash_alpha = if is_light { 0.15 } else { 0.20 };
+        ui::gradient_chrome::render_static_gradient_frame_canvas(
             custom_override,
             radius_px,
             border_px,
             0.0,
             0.0,
+            inner_wash_alpha,
             border_alpha,
             cx,
         )

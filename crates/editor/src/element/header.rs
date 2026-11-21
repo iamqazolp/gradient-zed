@@ -408,14 +408,16 @@ impl EditorElement {
             });
         }
 
-        let text_bounds = layout.position_map.text_hitbox.bounds;
-        let border_top = text_bounds.top() + last_line_offset + layout.position_map.line_height;
-        let separator_height = px(1.);
-        let border_bounds = window.pixel_snap_bounds(Bounds::from_corners(
-            point(layout.gutter_hitbox.bounds.left(), border_top),
-            point(text_bounds.right(), border_top + separator_height),
-        ));
-        window.paint_quad(fill(border_bounds, cx.theme().colors().border_variant));
+        if !ui::gradient_chrome::is_enabled(cx) {
+            let text_bounds = layout.position_map.text_hitbox.bounds;
+            let border_top = text_bounds.top() + last_line_offset + layout.position_map.line_height;
+            let separator_height = px(1.);
+            let border_bounds = window.pixel_snap_bounds(Bounds::from_corners(
+                point(layout.gutter_hitbox.bounds.left(), border_top),
+                point(text_bounds.right(), border_top + separator_height),
+            ));
+            window.paint_quad(fill(border_bounds, cx.theme().colors().border_variant));
+        }
 
         layout.sticky_headers = Some(sticky_headers);
     }
@@ -430,6 +432,29 @@ impl StickyHeaders {
         cx: &mut App,
     ) {
         let line_height = layout.position_map.line_height;
+        let gradient_sticky_active = if let (Some(first), Some(last)) =
+            (self.lines.first(), self.lines.last())
+        {
+            let stack_height = last.offset + line_height;
+            let stack_bounds = Bounds::new(
+                layout.gutter_hitbox.origin + point(px(2.0), px(1.0)),
+                size(
+                    (first.hitbox.size.width - px(4.0)).max(Pixels::ZERO),
+                    (stack_height - px(2.0)).max(Pixels::ZERO),
+                ),
+            );
+            ui::gradient_chrome::paint_sticky_top_frame(
+                stack_bounds,
+                8.0,
+                1.25,
+                0.14,
+                0.84,
+                window,
+                cx,
+            )
+        } else {
+            false
+        };
 
         for line in self.lines.iter_mut().rev() {
             window.paint_layer(
@@ -442,18 +467,37 @@ impl StickyHeaders {
                         layout.gutter_hitbox.origin + point(Pixels::ZERO, line.offset),
                         size(layout.gutter_hitbox.size.width, line_height),
                     );
-                    window.paint_quad(fill(gutter_bounds, self.gutter_background));
-
                     let text_bounds = Bounds::new(
                         layout.position_map.text_hitbox.origin + point(Pixels::ZERO, line.offset),
                         size(line.available_text_width, line_height),
                     );
-                    window.paint_quad(fill(text_bounds, self.content_background));
+
+                    if !gradient_sticky_active {
+                        window.paint_quad(fill(gutter_bounds, self.gutter_background));
+                        window.paint_quad(fill(text_bounds, self.content_background));
+                    }
 
                     if line.hitbox.is_hovered(window) {
-                        let hover_overlay = cx.theme().colors().panel_overlay_hover;
-                        window.paint_quad(fill(gutter_bounds, hover_overlay));
-                        window.paint_quad(fill(text_bounds, hover_overlay));
+                        if gradient_sticky_active {
+                            let row_bounds = Bounds::new(
+                                layout.gutter_hitbox.origin + point(px(4.0), line.offset + px(1.0)),
+                                size(
+                                    (line.hitbox.size.width - px(8.0)).max(Pixels::ZERO),
+                                    (line_height - px(2.0)).max(Pixels::ZERO),
+                                ),
+                            );
+                            ui::gradient_chrome::paint_gradient_hover_band(
+                                row_bounds,
+                                5.0,
+                                0.18,
+                                window,
+                                cx,
+                            );
+                        } else {
+                            let hover_overlay = cx.theme().colors().panel_overlay_hover;
+                            window.paint_quad(fill(gutter_bounds, hover_overlay));
+                            window.paint_quad(fill(text_bounds, hover_overlay));
+                        }
                     }
 
                     line.paint(
@@ -714,6 +758,18 @@ pub(crate) fn render_buffer_header(
     let show_open_file_button =
         can_open_excerpts && relative_path.is_some() && (is_selected || header_hovered);
 
+    let gradient_header_frame = ui::gradient_chrome::render_sticky_gradient_frame_canvas(
+        None, 8.0, 1.25, 0.0, 0.0, 0.14, 0.84, cx,
+    );
+    let has_gradient_header = gradient_header_frame.is_some();
+    let gradient_header_hover = has_gradient_header
+        .then(|| {
+            ui::gradient_chrome::render_gradient_frame_canvas(
+                None, 8.0, 1.25, 0.0, 0.0, false, 0.22, 0.94, cx,
+            )
+        })
+        .flatten();
+
     let header = div()
         .id(("buffer-header", buffer_id.to_proto()))
         .on_hover(move |hovered, _window, cx| {
@@ -729,28 +785,45 @@ pub(crate) fn render_buffer_header(
         .h(FILE_HEADER_HEIGHT as f32 * window.line_height())
         .child(
             h_flex()
+                .relative()
                 .group("buffer-header-group")
                 .size_full()
                 .flex_basis(Length::Definite(DefiniteLength::Fraction(0.667)))
                 .pl_1()
                 .pr_2()
-                .rounded_sm()
+                .when(has_gradient_header, |s| s.rounded_lg())
+                .when(!has_gradient_header, |s| s.rounded_sm())
                 .gap_1p5()
-                .border_1()
-                .map(|border| {
-                    let border_color =
-                        if is_selected && is_folded && focus_handle.contains_focused(window, cx) {
-                            colors.border_focused
-                        } else {
-                            colors.border
-                        };
-                    border.border_color(border_color)
+                .children(gradient_header_frame)
+                .when_some(gradient_header_hover, |s, frame| {
+                    s.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .invisible()
+                            .group_hover("buffer-header-group", |style| style.visible())
+                            .child(frame),
+                    )
+                })
+                .when(!has_gradient_header, |s| {
+                    s.border_1()
+                        .map(|border| {
+                            let border_color = if is_selected
+                                && is_folded
+                                && focus_handle.contains_focused(window, cx)
+                            {
+                                colors.border_focused
+                            } else {
+                                colors.border
+                            };
+                            border.border_color(border_color)
+                        })
+                        .when(show_header_background, |s| {
+                            s.bg(colors.editor_subheader_background)
+                        })
+                        .hover(|s| s.bg(colors.element_hover))
                 })
                 .when(is_sticky && opaque_window, |s| s.shadow_md())
-                .when(show_header_background, |s| {
-                    s.bg(colors.editor_subheader_background)
-                })
-                .hover(|s| s.bg(colors.element_hover))
                 .map(|header| {
                     let editor = editor.clone();
                     let buffer_id = for_excerpt.buffer_id();
