@@ -18,10 +18,10 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: '1'
-  # Fast release profile for 3-vCPU GitHub runners (4x faster than LTO + codegen-units=1 + DWARF)
-  CARGO_PROFILE_RELEASE_OPT_LEVEL: '2'
+  # Fast release profile for 3-vCPU GitHub runners (opt-level=1 + 64 codegen-units + no LTO/DWARF)
+  CARGO_PROFILE_RELEASE_OPT_LEVEL: '1'
   CARGO_PROFILE_RELEASE_LTO: 'false'
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '16'
+  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: '64'
   CARGO_PROFILE_RELEASE_DEBUG: '0'
 
 permissions:
@@ -112,13 +112,13 @@ jobs:
             ~/.cargo/git/db
             target
           # Deterministic key (immune to GitHub macos-26 preinstalled 1.99.1 vs 1.100.0 drift)
-          # with rolling run_id+attempt suffix so every build updates the workspace cache and restores
-          # immediately from the previous build.
-          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          # with rolling run_id+attempt suffix and Cargo.lock-agnostic fallback so patch bumps
+          # (e.g. 1.29.3 -> 1.29.4) still reuse the warm workspace cache. Triggering via
+          # workflow_dispatch on default branch `gradient-zed` shares the cache across all tags.
+          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v3-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-
-            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-a2acbdd4-
-            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-
+            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v3-${{ hashFiles('Cargo.lock') }}-
+            v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v3-
 
       - name: Install Prebuilt cargo-about & cmake
         uses: taiki-e/install-action@v2
@@ -218,4 +218,4 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             target
-          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v2-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: v0-rust-macos-arm64-gradient-zed-fast-build_macos_arm64-Darwin-arm64-v3-${{ hashFiles('Cargo.lock') }}-${{ github.run_id }}-${{ github.run_attempt }}
