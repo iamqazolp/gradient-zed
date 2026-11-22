@@ -100,31 +100,6 @@ impl RenderOnce for CircularProgress {
                     0.0
                 };
 
-                let gradient_brushes: Option<(Background, Background)> = cx
-                    .try_global::<GradientChromeState>()
-                    .filter(|s| s.enabled)
-                    .map(|state| {
-                        let (stops, pulse) =
-                            state.live_stops_and_pulse(None, window.is_window_active());
-                        let track_a = (0.34 * pulse).clamp(0.18, 0.55);
-                        let track = linear_gradient(
-                            135.0,
-                            linear_color_stop(rgb_to_hsla(stops[0], track_a), 0.0),
-                            linear_color_stop(rgb_to_hsla(stops[3], track_a), 1.0),
-                        );
-                        let arc: Background = if progress >= 0.85 {
-                            progress_color.into()
-                        } else {
-                            let arc_a = (0.94 * pulse).clamp(0.70, 1.0);
-                            linear_gradient(
-                                135.0,
-                                linear_color_stop(rgb_to_hsla(stops[0], arc_a), 0.0),
-                                linear_color_stop(rgb_to_hsla(stops[3], arc_a), 1.0),
-                            )
-                        };
-                        (track, arc)
-                    });
-
                 // Draw background circle (full 360 degrees)
                 let mut bg_builder = PathBuilder::stroke(stroke_width);
 
@@ -147,17 +122,10 @@ impl RenderOnce for CircularProgress {
                     point(center_x + radius, center_y),
                 );
                 bg_builder.close();
-
-                if let Ok(path) = bg_builder.build() {
-                    let track_brush: Background = gradient_brushes
-                        .as_ref()
-                        .map(|(track, _)| *track)
-                        .unwrap_or_else(|| bg_color.into());
-                    window.paint_path(path, track_brush);
-                }
+                let bg_path = bg_builder.build().ok();
 
                 // Draw progress arc if there's any progress
-                if progress > 0.0 {
+                let arc_path = if progress > 0.0 {
                     let mut progress_builder = PathBuilder::stroke(stroke_width);
 
                     // Handle 100% progress as a special case by drawing a full circle
@@ -205,12 +173,59 @@ impl RenderOnce for CircularProgress {
                         );
                     }
 
-                    if let Ok(path) = progress_builder.build() {
-                        let arc_brush: Background = gradient_brushes
-                            .as_ref()
-                            .map(|(_, arc)| *arc)
-                            .unwrap_or_else(|| progress_color.into());
-                        window.paint_path(path, arc_brush);
+                    progress_builder.build().ok()
+                } else {
+                    None
+                };
+
+                if crate::gradient_chrome::is_enabled(cx) {
+                    window.paint_dynamic(cx, move |window, cx| {
+                        let gradient_brushes: Option<(Background, Background)> = cx
+                            .try_global::<GradientChromeState>()
+                            .filter(|s| s.enabled)
+                            .map(|state| {
+                                let (stops, pulse) =
+                                    state.live_stops_and_pulse(None, window.is_window_active());
+                                let track_a = (0.34 * pulse).clamp(0.18, 0.55);
+                                let track = linear_gradient(
+                                    135.0,
+                                    linear_color_stop(rgb_to_hsla(stops[0], track_a), 0.0),
+                                    linear_color_stop(rgb_to_hsla(stops[3], track_a), 1.0),
+                                );
+                                let arc: Background = if progress >= 0.85 {
+                                    progress_color.into()
+                                } else {
+                                    let arc_a = (0.94 * pulse).clamp(0.70, 1.0);
+                                    linear_gradient(
+                                        135.0,
+                                        linear_color_stop(rgb_to_hsla(stops[0], arc_a), 0.0),
+                                        linear_color_stop(rgb_to_hsla(stops[3], arc_a), 1.0),
+                                    )
+                                };
+                                (track, arc)
+                            });
+
+                        if let Some(path) = bg_path.as_ref() {
+                            let track_brush: Background = gradient_brushes
+                                .as_ref()
+                                .map(|(track, _)| *track)
+                                .unwrap_or_else(|| bg_color.into());
+                            window.paint_path(path.clone(), track_brush);
+                        }
+                        if let Some(path) = arc_path.as_ref() {
+                            let arc_brush: Background = gradient_brushes
+                                .as_ref()
+                                .map(|(_, arc)| *arc)
+                                .unwrap_or_else(|| progress_color.into());
+                            window.paint_path(path.clone(), arc_brush);
+                        }
+                    });
+                } else {
+                    if let Some(path) = bg_path {
+                        window.paint_path(path, bg_color);
+                    }
+                    if let Some(path) = arc_path {
+                        window.paint_path(path, progress_color);
                     }
                 }
             },

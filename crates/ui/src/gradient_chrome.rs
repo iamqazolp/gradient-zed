@@ -3,8 +3,8 @@ use std::time::Instant;
 
 use gpui::{
     AnyElement, App, Background, BorderStyle, Bounds, Corners, Edges, Global, Hsla, IntoElement,
-    Pixels, Styled, Window, canvas, linear_color_stop, linear_gradient, outline, point, px, quad,
-    size, transparent_black,
+    Path, Pixels, Styled, Window, canvas, linear_color_stop, linear_gradient, outline, point, px,
+    quad, size, transparent_black,
 };
 use theme::{ActiveTheme as _, Appearance};
 
@@ -289,18 +289,63 @@ pub fn paint_markdown_selection_quad(
     window: &mut Window,
     cx: &App,
 ) -> bool {
-    let Some(state) = cx.try_global::<GradientChromeState>() else {
-        return false;
-    };
-    if !state.enabled {
+    if !is_enabled(cx) {
         return false;
     }
-    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
-    let base_a = if state.is_light { 0.28 } else { 0.34 };
-    let a0 = (base_a * pulse).clamp(0.14, 0.50);
-    let a1 = ((base_a + 0.03) * pulse).clamp(0.14, 0.54);
-    paint_rounded_four_stop_band(bounds, px(3.0), stops, [a0, a1, a1, a0], true, window);
+    window.paint_dynamic(cx, move |window, cx| {
+        let Some(state) = cx.try_global::<GradientChromeState>() else {
+            return;
+        };
+        if !state.enabled {
+            return;
+        }
+        let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+        let base_a = if state.is_light { 0.28 } else { 0.34 };
+        let a0 = (base_a * pulse).clamp(0.14, 0.50);
+        let a1 = ((base_a + 0.03) * pulse).clamp(0.14, 0.54);
+        paint_rounded_four_stop_band(bounds, px(3.0), stops, [a0, a1, a1, a0], true, window);
+    });
     true
+}
+
+/// Paints a live-breathing gradient path for Editor text selections while keeping the enclosing
+/// `Pane`/`Editor` view cached across Breathe ticks.
+pub fn paint_selection_path(
+    path: Path<Pixels>,
+    opacity_scale: f32,
+    fallback: Hsla,
+    window: &mut Window,
+    cx: &App,
+) {
+    if !is_enabled(cx) {
+        window.paint_path(path, fallback);
+        return;
+    }
+    window.paint_dynamic(cx, move |window, cx| {
+        let bg = selection_background(window, opacity_scale, cx)
+            .unwrap_or_else(|| fallback.into());
+        window.paint_path(path.clone(), bg);
+    });
+}
+
+/// Paints a live-breathing gradient path for animated text cursors while keeping the enclosing
+/// `Pane`/`Editor` view cached across Breathe ticks.
+pub fn paint_cursor_path(
+    path: Path<Pixels>,
+    is_underline: bool,
+    fallback: Hsla,
+    window: &mut Window,
+    cx: &App,
+) {
+    if !is_enabled(cx) {
+        window.paint_path(path, fallback);
+        return;
+    }
+    window.paint_dynamic(cx, move |window, cx| {
+        let bg = cursor_path_background(is_underline, fallback.a, window, cx)
+            .unwrap_or_else(|| fallback.into());
+        window.paint_path(path.clone(), bg);
+    });
 }
 
 /// Paints a pixel-snapped, zero-seam 4-stop gradient rectangle with **native GPU SDF rounded
@@ -493,18 +538,30 @@ pub fn paint_scrollbar_thumb(
     window: &mut Window,
     cx: &App,
 ) -> bool {
-    let Some(state) = cx.try_global::<GradientChromeState>() else {
-        return false;
-    };
-    if !state.enabled {
+    if !is_enabled(cx) {
         return false;
     }
-    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
-    let a = (opacity_mult * pulse).clamp(0.0, 0.96);
-    if a <= 0.001 {
-        return true;
-    }
-    paint_rounded_four_stop_band(bounds, px(radius_px), stops, [a, a, a, a], horizontal, window);
+    window.paint_dynamic(cx, move |window, cx| {
+        let Some(state) = cx.try_global::<GradientChromeState>() else {
+            return;
+        };
+        if !state.enabled {
+            return;
+        }
+        let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+        let a = (opacity_mult * pulse).clamp(0.0, 0.96);
+        if a <= 0.001 {
+            return;
+        }
+        paint_rounded_four_stop_band(
+            bounds,
+            px(radius_px),
+            stops,
+            [a, a, a, a],
+            horizontal,
+            window,
+        );
+    });
     true
 }
 
@@ -541,29 +598,34 @@ pub fn paint_text_cursor_quad(
     window: &mut Window,
     cx: &App,
 ) -> bool {
-    let Some(state) = cx.try_global::<GradientChromeState>() else {
-        return false;
-    };
-    if !state.enabled {
+    if !is_enabled(cx) {
         return false;
     }
     let a = color_alpha.clamp(0.0, 1.0);
     if a <= 0.001 {
         return true;
     }
-    let (stops, _) = state.live_stops_and_pulse(None, window.is_window_active());
-    if is_hollow {
-        window.paint_quad(outline(bounds, rgb_to_hsla(stops[0], a), BorderStyle::Solid));
-    } else {
-        paint_rounded_four_stop_band(
-            bounds,
-            px(radius_px),
-            stops,
-            [a, a, a, a],
-            is_underline,
-            window,
-        );
-    }
+    window.paint_dynamic(cx, move |window, cx| {
+        let Some(state) = cx.try_global::<GradientChromeState>() else {
+            return;
+        };
+        if !state.enabled {
+            return;
+        }
+        let (stops, _) = state.live_stops_and_pulse(None, window.is_window_active());
+        if is_hollow {
+            window.paint_quad(outline(bounds, rgb_to_hsla(stops[0], a), BorderStyle::Solid));
+        } else {
+            paint_rounded_four_stop_band(
+                bounds,
+                px(radius_px),
+                stops,
+                [a, a, a, a],
+                is_underline,
+                window,
+            );
+        }
+    });
     true
 }
 
@@ -578,28 +640,33 @@ pub fn paint_sticky_top_frame(
     window: &mut Window,
     cx: &App,
 ) -> bool {
-    let Some(state) = cx.try_global::<GradientChromeState>() else {
-        return false;
-    };
-    if !state.enabled {
+    if !is_enabled(cx) {
         return false;
     }
-    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
-    let inner_bg = state
-        .canvas_bg
-        .opacity(if state.is_light { 0.90 } else { 0.92 });
-    let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
-    let w_alpha = (inner_wash_alpha * pulse).clamp(0.0, 0.45);
-    paint_rounded_gradient_frame(
-        bounds,
-        radius_px,
-        border_px,
-        stops,
-        b_alpha,
-        inner_bg,
-        w_alpha,
-        window,
-    );
+    window.paint_dynamic(cx, move |window, cx| {
+        let Some(state) = cx.try_global::<GradientChromeState>() else {
+            return;
+        };
+        if !state.enabled {
+            return;
+        }
+        let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+        let inner_bg = state
+            .canvas_bg
+            .opacity(if state.is_light { 0.90 } else { 0.92 });
+        let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
+        let w_alpha = (inner_wash_alpha * pulse).clamp(0.0, 0.45);
+        paint_rounded_gradient_frame(
+            bounds,
+            radius_px,
+            border_px,
+            stops,
+            b_alpha,
+            inner_bg,
+            w_alpha,
+            window,
+        );
+    });
     true
 }
 
@@ -611,15 +678,27 @@ pub fn paint_gradient_hover_band(
     window: &mut Window,
     cx: &App,
 ) -> bool {
-    let Some(state) = cx.try_global::<GradientChromeState>() else {
-        return false;
-    };
-    if !state.enabled {
+    if !is_enabled(cx) {
         return false;
     }
-    let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
-    let a = (alpha * pulse).clamp(0.0, 0.45);
-    paint_rounded_four_stop_band(bounds, px(radius_px), stops, [a, a * 0.85, a * 0.85, a], true, window);
+    window.paint_dynamic(cx, move |window, cx| {
+        let Some(state) = cx.try_global::<GradientChromeState>() else {
+            return;
+        };
+        if !state.enabled {
+            return;
+        }
+        let (stops, pulse) = state.live_stops_and_pulse(None, window.is_window_active());
+        let a = (alpha * pulse).clamp(0.0, 0.45);
+        paint_rounded_four_stop_band(
+            bounds,
+            px(radius_px),
+            stops,
+            [a, a * 0.85, a * 0.85, a],
+            true,
+            window,
+        );
+    });
     true
 }
 
@@ -645,72 +724,81 @@ fn render_gradient_frame_canvas_inner(
         canvas(
             |_, _, _| (),
             move |bounds: Bounds<Pixels>, (), window, cx| {
-                let Some(state) = cx.try_global::<GradientChromeState>() else {
-                    return;
-                };
-                if !state.enabled {
-                    return;
-                }
-                let inset_bounds = Bounds {
-                    origin: point(
-                        bounds.origin.x + px(inset_x_px),
-                        bounds.origin.y + px(inset_y_px),
-                    ),
-                    size: size(
-                        px((f32::from(bounds.size.width) - inset_x_px * 2.0).max(0.0)),
-                        px((f32::from(bounds.size.height) - inset_y_px * 2.0).max(0.0)),
-                    ),
-                };
-                let (stops, pulse) = if breathing {
-                    state.live_stops_and_pulse(override_stops, window.is_window_active())
-                } else {
-                    (override_stops.unwrap_or(state.stops), 1.0)
-                };
-                let (inner_bg, base_wash) = if opaque_solid_wash || (solid_inner && !breathing) {
-                    let mut solid = state.canvas_bg;
-                    solid.a = 1.0;
-                    (solid, inner_wash_alpha)
-                } else if sticky_opaque {
-                    let masked = state
-                        .canvas_bg
-                        .opacity(if state.is_light { 0.90 } else { 0.92 });
-                    (masked, inner_wash_alpha)
-                } else if solid_inner {
-                    // Frosted translucent card for code/mermaid blocks so they don't look like
-                    // glaring opaque white slabs while preserving crisp syntax contrast.
-                    let frosted = state
-                        .canvas_bg
-                        .opacity(if state.is_light { 0.74 } else { 0.78 });
-                    let wash = if inner_wash_alpha > 0.0 {
-                        inner_wash_alpha
-                    } else {
-                        0.06
+                let paint_frame = move |window: &mut Window, cx: &App| {
+                    let Some(state) = cx.try_global::<GradientChromeState>() else {
+                        return;
                     };
-                    (frosted, wash)
-                } else {
-                    (
-                        state
+                    if !state.enabled {
+                        return;
+                    }
+                    let inset_bounds = Bounds {
+                        origin: point(
+                            bounds.origin.x + px(inset_x_px),
+                            bounds.origin.y + px(inset_y_px),
+                        ),
+                        size: size(
+                            px((f32::from(bounds.size.width) - inset_x_px * 2.0).max(0.0)),
+                            px((f32::from(bounds.size.height) - inset_y_px * 2.0).max(0.0)),
+                        ),
+                    };
+                    let (stops, pulse) = if breathing {
+                        state.live_stops_and_pulse(override_stops, window.is_window_active())
+                    } else {
+                        (override_stops.unwrap_or(state.stops), 1.0)
+                    };
+                    let (inner_bg, base_wash) = if opaque_solid_wash || (solid_inner && !breathing)
+                    {
+                        let mut solid = state.canvas_bg;
+                        solid.a = 1.0;
+                        (solid, inner_wash_alpha)
+                    } else if sticky_opaque {
+                        let masked = state
                             .canvas_bg
-                            .opacity(if state.is_light { 0.78 } else { 0.78 }),
-                        inner_wash_alpha,
-                    )
+                            .opacity(if state.is_light { 0.90 } else { 0.92 });
+                        (masked, inner_wash_alpha)
+                    } else if solid_inner {
+                        // Frosted translucent card for code/mermaid blocks so they don't look like
+                        // glaring opaque white slabs while preserving crisp syntax contrast.
+                        let frosted = state
+                            .canvas_bg
+                            .opacity(if state.is_light { 0.74 } else { 0.78 });
+                        let wash = if inner_wash_alpha > 0.0 {
+                            inner_wash_alpha
+                        } else {
+                            0.06
+                        };
+                        (frosted, wash)
+                    } else {
+                        (
+                            state
+                                .canvas_bg
+                                .opacity(if state.is_light { 0.78 } else { 0.78 }),
+                            inner_wash_alpha,
+                        )
+                    };
+                    let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
+                    let w_alpha = if base_wash > 0.0 {
+                        (base_wash * pulse).clamp(0.0, 0.45)
+                    } else {
+                        0.0
+                    };
+                    paint_rounded_gradient_frame(
+                        inset_bounds,
+                        radius_px,
+                        border_px,
+                        stops,
+                        b_alpha,
+                        inner_bg,
+                        w_alpha,
+                        window,
+                    );
                 };
-                let b_alpha = (border_alpha * pulse).clamp(0.15, 0.96);
-                let w_alpha = if base_wash > 0.0 {
-                    (base_wash * pulse).clamp(0.0, 0.45)
+
+                if breathing {
+                    window.paint_dynamic(cx, paint_frame);
                 } else {
-                    0.0
-                };
-                paint_rounded_gradient_frame(
-                    inset_bounds,
-                    radius_px,
-                    border_px,
-                    stops,
-                    b_alpha,
-                    inner_bg,
-                    w_alpha,
-                    window,
-                );
+                    paint_frame(window, cx);
+                }
             },
         )
         .absolute()
@@ -871,16 +959,25 @@ pub fn render_gradient_edge_canvas(
         canvas(
             |_, _, _| (),
             move |bounds: Bounds<Pixels>, (), window, cx| {
-                let Some(state) = cx.try_global::<GradientChromeState>() else {
-                    return;
-                };
-                if !state.enabled {
-                    return;
-                }
-                let (stops, pulse) =
-                    state.live_stops_and_pulse(override_stops, window.is_window_active());
-                let a = (alpha * pulse).clamp(0.12, 0.96);
-                paint_rounded_four_stop_band(bounds, px(0.0), stops, [a, a, a, a], horizontal, window);
+                window.paint_dynamic(cx, move |window, cx| {
+                    let Some(state) = cx.try_global::<GradientChromeState>() else {
+                        return;
+                    };
+                    if !state.enabled {
+                        return;
+                    }
+                    let (stops, pulse) =
+                        state.live_stops_and_pulse(override_stops, window.is_window_active());
+                    let a = (alpha * pulse).clamp(0.12, 0.96);
+                    paint_rounded_four_stop_band(
+                        bounds,
+                        px(0.0),
+                        stops,
+                        [a, a, a, a],
+                        horizontal,
+                        window,
+                    );
+                });
             },
         )
         .absolute()

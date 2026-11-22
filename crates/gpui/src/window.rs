@@ -4,6 +4,7 @@ use crate::DebugFrameOverlayMode;
 use crate::Inspector;
 #[cfg(feature = "profiler")]
 use crate::profiler;
+use crate::scene::{DynamicPaintOperation, PaintOperation};
 use crate::subscription::SingleSubscriberSet;
 use crate::taffy::TaffyLayoutEngine;
 use crate::{
@@ -2595,6 +2596,15 @@ impl Window {
         }
     }
 
+    /// Schedule a lightweight repaint without invalidating cached view layout or prepaint.
+    /// Cached views replay their recorded scene operations and re-evaluate any
+    /// [`Self::paint_dynamic`] closures in place.
+    pub fn repaint_cached(&mut self) {
+        if self.invalidator.not_drawing() {
+            self.invalidator.set_dirty(true);
+        }
+    }
+
     /// Close this window.
     pub fn remove_window(&mut self) {
         self.removed = true;
@@ -4214,7 +4224,7 @@ impl Window {
                 });
                 deferred_draw.accessed_entities.extend(accessed_entities);
             } else {
-                self.reuse_paint(deferred_draw.paint_range.clone());
+                self.reuse_paint(deferred_draw.paint_range.clone(), cx);
             }
             let paint_end = self.paint_index();
             deferred_draw.paint_range = paint_start..paint_end;
@@ -4307,7 +4317,7 @@ impl Window {
         }
     }
 
-    pub(crate) fn reuse_paint(&mut self, range: Range<PaintIndex>) {
+    pub(crate) fn reuse_paint(&mut self, range: Range<PaintIndex>, cx: &App) {
         // Cached elements still exist in the frame even when their paint methods don't run.
         #[cfg(any(test, feature = "test-support"))]
         for (selector, bounds) in &self.rendered_frame.debug_bounds_records
@@ -4347,10 +4357,27 @@ impl Window {
 
         self.text_system
             .reuse_layouts(range.start.line_layout_index..range.end.line_layout_index);
-        self.next_frame.scene.replay(
-            range.start.scene_index..range.end.scene_index,
-            &self.rendered_frame.scene,
-        );
+
+        for op_ix in range.start.scene_index..range.end.scene_index {
+            let dynamic_op = match &self.rendered_frame.scene.paint_operations[op_ix] {
+                PaintOperation::Primitive(primitive) => {
+                    self.next_frame.scene.insert_primitive(primitive.clone());
+                    None
+                }
+                PaintOperation::Dynamic(dynamic) => Some(dynamic.clone()),
+                PaintOperation::StartLayer(bounds) => {
+                    self.next_frame.scene.push_layer(*bounds);
+                    None
+                }
+                PaintOperation::EndLayer => {
+                    self.next_frame.scene.pop_layer();
+                    None
+                }
+            };
+            if let Some(dynamic) = dynamic_op {
+                self.run_dynamic_paint(dynamic, cx);
+            }
+        }
     }
 
     /// Push a text style onto the stack, and call a function with that style active.
@@ -4919,6 +4946,44 @@ impl Window {
             horizontal_band
         } else {
             vertical_band
+        }
+    }
+
+    /// Executes `paint` immediately during the paint phase and records it as a dynamic
+    /// scene operation so enclosing cached views re-evaluate it when replaying via
+    /// [`Self::repaint_cached`] without re-running layout or prepaint.
+    pub fn paint_dynamic(
+        &mut self,
+        cx: &App,
+        paint: impl Fn(&mut Window, &App) + 'static,
+    ) {
+        self.invalidator.debug_assert_paint();
+        let operation = DynamicPaintOperation {
+            content_mask: self.content_mask_stack.last().copied(),
+            element_opacity: self.element_opacity,
+            paint: Rc::new(paint),
+        };
+        self.run_dynamic_paint(operation, cx);
+    }
+
+    fn run_dynamic_paint(&mut self, operation: DynamicPaintOperation, cx: &App) {
+        let is_outermost = self.next_frame.scene.dynamic_paint_depth == 0;
+        let prev_opacity = mem::replace(&mut self.element_opacity, operation.element_opacity);
+        let pushed_mask = if let Some(mask) = operation.content_mask {
+            self.content_mask_stack.push(mask);
+            true
+        } else {
+            false
+        };
+        self.next_frame.scene.dynamic_paint_depth += 1;
+        (operation.paint)(self, cx);
+        self.next_frame.scene.dynamic_paint_depth -= 1;
+        if pushed_mask {
+            self.content_mask_stack.pop();
+        }
+        self.element_opacity = prev_opacity;
+        if is_outermost {
+            self.next_frame.scene.push_dynamic_operation(operation);
         }
     }
 
@@ -10678,5 +10743,165 @@ mod inspector_tests {
             }
         })
         .expect("closed inspector has no bookkeeping and no style overrides");
+    }
+
+    #[gpui::test]
+    fn test_repaint_cached_replays_dynamic_paint_without_rerendering_cached_views(
+        cx: &mut TestAppContext,
+    ) {
+        struct DynamicColor(Cell<f32>);
+        impl Global for DynamicColor {}
+
+        struct DynamicChildView {
+            render_count: Rc<Cell<usize>>,
+            dynamic_paint_count: Rc<Cell<usize>>,
+        }
+
+        impl Render for DynamicChildView {
+            fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+                self.render_count.set(self.render_count.get() + 1);
+                let dynamic_paint_count = self.dynamic_paint_count.clone();
+                div().relative().size(px(100.)).child(
+                    div()
+                        .size(px(40.))
+                        .overflow_hidden()
+                        .child(
+                            crate::canvas(
+                                |_, _, _| (),
+                                move |bounds, (), window, cx| {
+                                    // Static quad before dynamic paint
+                                    window.paint_quad(crate::fill(
+                                        bounds,
+                                        crate::hsla(0.1, 1.0, 0.5, 1.0),
+                                    ));
+                                    let paint_count = dynamic_paint_count.clone();
+                                    window.paint_dynamic(cx, move |window, cx| {
+                                        paint_count.set(paint_count.get() + 1);
+                                        let hue = cx.global::<DynamicColor>().0.get();
+                                        window.paint_quad(crate::fill(
+                                            Bounds::new(bounds.origin, size(px(100.), px(100.))),
+                                            crate::hsla(hue, 1.0, 0.5, 1.0),
+                                        ));
+                                    });
+                                    // Static quad after dynamic paint
+                                    window.paint_quad(crate::fill(
+                                        bounds,
+                                        crate::hsla(0.9, 1.0, 0.5, 1.0),
+                                    ));
+                                },
+                            )
+                            .size_full(),
+                        ),
+                )
+            }
+        }
+
+        struct DynamicRootView {
+            child: Entity<DynamicChildView>,
+        }
+
+        impl Render for DynamicRootView {
+            fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+                self.child
+                    .clone()
+                    .cached(StyleRefinement::default().size(px(100.)))
+            }
+        }
+
+        cx.update(|cx| {
+            cx.set_global(DynamicColor(Cell::new(0.25)));
+        });
+
+        let render_count = Rc::new(Cell::new(0));
+        let dynamic_paint_count = Rc::new(Cell::new(0));
+        let window = cx.add_window({
+            let render_count = render_count.clone();
+            let dynamic_paint_count = dynamic_paint_count.clone();
+            move |_, cx| {
+                let child = cx.new(|_| DynamicChildView {
+                    render_count,
+                    dynamic_paint_count,
+                });
+                DynamicRootView { child }
+            }
+        });
+
+        let (baseline_renders, baseline_paints, initial_ops_len) = cx
+            .update_window(window.into(), |_, window, cx| {
+                window.draw(cx).clear(cx);
+                let renders = render_count.get();
+                let paints = dynamic_paint_count.get();
+                let expected_mask = size(
+                    ScaledPixels(40. * window.scale_factor()),
+                    ScaledPixels(40. * window.scale_factor()),
+                );
+                assert!(renders >= 1);
+                assert!(paints >= 1);
+                let quads = &window.rendered_frame.scene.quads;
+                assert_eq!(quads.len(), 3);
+                assert!(quads[0].order < quads[1].order);
+                assert!(quads[1].order < quads[2].order);
+                assert!((quads[1].background.solid.h - 0.25).abs() < 1e-4);
+                assert_eq!(quads[1].content_mask.bounds.size, expected_mask);
+                (
+                    renders,
+                    paints,
+                    window.rendered_frame.scene.paint_operations.len(),
+                )
+            })
+            .unwrap();
+
+        for step in 1..=50 {
+            let next_hue = (step as f32 * 0.015) % 1.0;
+            cx.update(|cx| {
+                cx.global::<DynamicColor>().0.set(next_hue);
+            });
+            cx.update_window(window.into(), |_, window, cx| {
+                window.repaint_cached();
+                assert!(window.invalidator.is_dirty());
+                assert!(!window.refreshing);
+                window.draw(cx).clear(cx);
+                let expected_mask = size(
+                    ScaledPixels(40. * window.scale_factor()),
+                    ScaledPixels(40. * window.scale_factor()),
+                );
+
+                assert_eq!(
+                    render_count.get(),
+                    baseline_renders,
+                    "cached child view must not re-render during repaint_cached"
+                );
+                assert_eq!(dynamic_paint_count.get(), baseline_paints + step);
+                assert_eq!(
+                    window.rendered_frame.scene.paint_operations.len(),
+                    initial_ops_len,
+                    "paint_operations length must remain constant across cached repaints"
+                );
+
+                let quads = &window.rendered_frame.scene.quads;
+                assert_eq!(quads.len(), 3);
+                assert!(quads[0].order < quads[1].order);
+                assert!(quads[1].order < quads[2].order);
+                assert!(
+                    (quads[1].background.solid.h - next_hue).abs() < 1e-4,
+                    "dynamic quad color should update live on cached repaint"
+                );
+                assert_eq!(
+                    quads[1].content_mask.bounds.size,
+                    expected_mask,
+                    "captured overflow_hidden content_mask must be preserved on replay"
+                );
+            })
+            .unwrap();
+        }
+
+        // Full refresh still invalidates cached views normally.
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+            assert_eq!(render_count.get(), baseline_renders + 1);
+            assert_eq!(dynamic_paint_count.get(), baseline_paints + 51);
+        })
+        .unwrap();
     }
 }

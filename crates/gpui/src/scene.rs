@@ -12,6 +12,7 @@ use std::{
     fmt::Debug,
     iter::Peekable,
     ops::{Add, Range, Sub},
+    rc::Rc,
     slice,
 };
 
@@ -40,6 +41,7 @@ impl From<bool> for PaddedBool32 {
 #[expect(missing_docs)]
 pub struct Scene {
     pub(crate) paint_operations: Vec<PaintOperation>,
+    pub(crate) dynamic_paint_depth: u32,
     primitive_bounds: BoundsTree<ScaledPixels>,
     layer_stack: Vec<DrawOrder>,
     pub shadows: Vec<Shadow>,
@@ -56,6 +58,7 @@ pub struct Scene {
 impl Scene {
     pub fn clear(&mut self) {
         self.paint_operations.clear();
+        self.dynamic_paint_depth = 0;
         self.primitive_bounds.clear();
         self.layer_stack.clear();
         self.paths.clear();
@@ -75,13 +78,22 @@ impl Scene {
     pub fn push_layer(&mut self, bounds: Bounds<ScaledPixels>) {
         let order = self.primitive_bounds.insert(bounds);
         self.layer_stack.push(order);
-        self.paint_operations
-            .push(PaintOperation::StartLayer(bounds));
+        if self.dynamic_paint_depth == 0 {
+            self.paint_operations
+                .push(PaintOperation::StartLayer(bounds));
+        }
     }
 
     pub fn pop_layer(&mut self) {
         self.layer_stack.pop();
-        self.paint_operations.push(PaintOperation::EndLayer);
+        if self.dynamic_paint_depth == 0 {
+            self.paint_operations.push(PaintOperation::EndLayer);
+        }
+    }
+
+    pub(crate) fn push_dynamic_operation(&mut self, operation: DynamicPaintOperation) {
+        self.paint_operations
+            .push(PaintOperation::Dynamic(operation));
     }
 
     pub fn insert_primitive(&mut self, primitive: impl Into<Primitive>) {
@@ -134,14 +146,17 @@ impl Scene {
                 self.surfaces.push(surface.clone());
             }
         }
-        self.paint_operations
-            .push(PaintOperation::Primitive(primitive));
+        if self.dynamic_paint_depth == 0 {
+            self.paint_operations
+                .push(PaintOperation::Primitive(primitive));
+        }
     }
 
     pub fn replay(&mut self, range: Range<usize>, prev_scene: &Scene) {
         for operation in &prev_scene.paint_operations[range] {
             match operation {
                 PaintOperation::Primitive(primitive) => self.insert_primitive(primitive.clone()),
+                PaintOperation::Dynamic(_) => {}
                 PaintOperation::StartLayer(bounds) => self.push_layer(*bounds),
                 PaintOperation::EndLayer => self.pop_layer(),
             }
@@ -211,8 +226,16 @@ pub(crate) enum PrimitiveKind {
     Surface,
 }
 
+#[derive(Clone)]
+pub(crate) struct DynamicPaintOperation {
+    pub(crate) content_mask: Option<ContentMask<Pixels>>,
+    pub(crate) element_opacity: f32,
+    pub(crate) paint: Rc<dyn Fn(&mut crate::Window, &crate::App)>,
+}
+
 pub(crate) enum PaintOperation {
     Primitive(Primitive),
+    Dynamic(DynamicPaintOperation),
     StartLayer(Bounds<ScaledPixels>),
     EndLayer,
 }

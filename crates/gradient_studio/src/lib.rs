@@ -191,4 +191,143 @@ mod tests {
         assert_eq!(stops_after_shimmer, stops_before);
         assert!((motion_after_shimmer - motion_before).abs() < 0.01);
     }
+
+    #[gpui::test]
+    fn repaint_cached_updates_dynamic_gradient_without_rerendering_cached_child(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use gpui::{
+            AppContext as _, Bounds, Context, Entity, Global, IntoElement, ParentElement, Render,
+            ScaledPixels, StyleRefinement, Styled, Window, canvas, div, fill, hsla, px, size,
+        };
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        struct TestHue(Cell<f32>);
+        impl Global for TestHue {}
+
+        struct CachedChild {
+            render_count: Rc<Cell<usize>>,
+            dynamic_paint_count: Rc<Cell<usize>>,
+        }
+
+        impl Render for CachedChild {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                self.render_count.set(self.render_count.get() + 1);
+                let dynamic_paint_count = self.dynamic_paint_count.clone();
+                div().relative().size(px(100.)).child(
+                    div().size(px(40.)).overflow_hidden().child(
+                        canvas(
+                            |_, _, _| (),
+                            move |bounds, (), window, cx| {
+                                window.paint_quad(fill(bounds, hsla(0.1, 1.0, 0.5, 1.0)));
+                                let count = dynamic_paint_count.clone();
+                                window.paint_dynamic(cx, move |window, cx| {
+                                    count.set(count.get() + 1);
+                                    let hue = cx.global::<TestHue>().0.get();
+                                    window.paint_quad(fill(
+                                        Bounds::new(bounds.origin, size(px(100.), px(100.))),
+                                        hsla(hue, 1.0, 0.5, 1.0),
+                                    ));
+                                });
+                                window.paint_quad(fill(bounds, hsla(0.9, 1.0, 0.5, 1.0)));
+                            },
+                        )
+                        .size_full(),
+                    ),
+                )
+            }
+        }
+
+        struct Root {
+            child: Entity<CachedChild>,
+        }
+
+        impl Render for Root {
+            fn render(
+                &mut self,
+                _window: &mut Window,
+                _cx: &mut Context<Self>,
+            ) -> impl IntoElement {
+                self.child
+                    .clone()
+                    .cached(StyleRefinement::default().size(px(100.)))
+            }
+        }
+
+        cx.update(|cx| cx.set_global(TestHue(Cell::new(0.25))));
+        let render_count = Rc::new(Cell::new(0));
+        let dynamic_paint_count = Rc::new(Cell::new(0));
+
+        let window = cx.add_window({
+            let render_count = render_count.clone();
+            let dynamic_paint_count = dynamic_paint_count.clone();
+            move |_, cx| {
+                let child = cx.new(|_| CachedChild {
+                    render_count,
+                    dynamic_paint_count,
+                });
+                Root { child }
+            }
+        });
+
+        let (baseline_renders, baseline_paints) = cx
+            .update_window(window.into(), |_, window, cx| {
+                window.draw(cx).clear(cx);
+                let renders = render_count.get();
+                let paints = dynamic_paint_count.get();
+                assert!(renders >= 1);
+                assert!(paints >= 1);
+                let quads = window.painted_quads();
+                assert_eq!(quads.len(), 3);
+                assert!(quads[0].order < quads[1].order);
+                assert!(quads[1].order < quads[2].order);
+                assert!((quads[1].background.as_solid().unwrap().h - 0.25).abs() < 1e-4);
+                let expected_mask = size(
+                    ScaledPixels(40. * window.scale_factor()),
+                    ScaledPixels(40. * window.scale_factor()),
+                );
+                assert_eq!(quads[1].content_mask.bounds.size, expected_mask);
+                (renders, paints)
+            })
+            .unwrap();
+
+        for step in 1..=50 {
+            let next_hue = (step as f32 * 0.015) % 1.0;
+            cx.update(|cx| cx.global::<TestHue>().0.set(next_hue));
+            cx.update_window(window.into(), |_, window, cx| {
+                window.repaint_cached();
+                window.draw(cx).clear(cx);
+                assert_eq!(
+                    render_count.get(),
+                    baseline_renders,
+                    "cached child view must NOT re-render during repaint_cached"
+                );
+                assert_eq!(dynamic_paint_count.get(), baseline_paints + step);
+                let quads = window.painted_quads();
+                assert_eq!(quads.len(), 3);
+                assert!(quads[0].order < quads[1].order);
+                assert!(quads[1].order < quads[2].order);
+                assert!((quads[1].background.as_solid().unwrap().h - next_hue).abs() < 1e-4);
+                let expected_mask = size(
+                    ScaledPixels(40. * window.scale_factor()),
+                    ScaledPixels(40. * window.scale_factor()),
+                );
+                assert_eq!(quads[1].content_mask.bounds.size, expected_mask);
+            })
+            .unwrap();
+        }
+
+        cx.update_window(window.into(), |_, window, cx| {
+            window.refresh();
+            window.draw(cx).clear(cx);
+            assert_eq!(render_count.get(), baseline_renders + 1);
+            assert_eq!(dynamic_paint_count.get(), baseline_paints + 51);
+        })
+        .unwrap();
+    }
 }

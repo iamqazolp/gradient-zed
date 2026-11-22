@@ -386,47 +386,49 @@ pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyEleme
             if width <= 0.0 || height <= 0.0 {
                 return;
             }
-            let (live_stops, live_angle, live_scale, focal) = cx
-                .try_global::<GradientStudioState>()
-                .filter(|s| s.enabled)
-                .map(|state| {
-                    let any_motion = state.has_any_motion();
-                    if let Some(delta) = state.current_breathe_delta().filter(|_| any_motion) {
-                        let color_delta = state.color_delta_for(delta);
-                        evaluate_aurora_frame(
-                            delta,
-                            color_delta,
-                            stops,
-                            135.0,
-                            base_scale,
-                            state.breathe_cfg,
-                        )
-                    } else {
+            window.paint_dynamic(cx, move |window, cx| {
+                let (live_stops, live_angle, live_scale, focal) = cx
+                    .try_global::<GradientStudioState>()
+                    .filter(|s| s.enabled)
+                    .map(|state| {
+                        let any_motion = state.has_any_motion();
+                        if let Some(delta) = state.current_breathe_delta().filter(|_| any_motion) {
+                            let color_delta = state.color_delta_for(delta);
+                            evaluate_aurora_frame(
+                                delta,
+                                color_delta,
+                                stops,
+                                135.0,
+                                base_scale,
+                                state.breathe_cfg,
+                            )
+                        } else {
+                            (
+                                stops,
+                                135.0,
+                                base_scale,
+                                compute_focal_points(None, state.breathe_cfg),
+                            )
+                        }
+                    })
+                    .unwrap_or_else(|| {
                         (
                             stops,
                             135.0,
                             base_scale,
-                            compute_focal_points(None, state.breathe_cfg),
+                            [(0.14, 0.14), (0.86, 0.22), (0.20, 0.86), (0.86, 0.86)],
                         )
-                    }
-                })
-                .unwrap_or_else(|| {
-                    (
-                        stops,
-                        135.0,
-                        base_scale,
-                        [(0.14, 0.14), (0.86, 0.22), (0.20, 0.86), (0.86, 0.86)],
-                    )
-                });
-            paint_aurora_shape(
-                bounds,
-                live_stops,
-                live_angle,
-                live_scale,
-                focal,
-                AuroraShape::FullMesh,
-                window,
-            );
+                    });
+                paint_aurora_shape(
+                    bounds,
+                    live_stops,
+                    live_angle,
+                    live_scale,
+                    focal,
+                    AuroraShape::FullMesh,
+                    window,
+                );
+            });
         },
     )
     .absolute()
@@ -467,13 +469,41 @@ fn evaluate_aurora_frame(
     (active_stops, angle, base_scale * pulse_mult, focal)
 }
 
+fn schedule_breathe_repaint_if_needed(window: &Window, cx: &App) {
+    let breathe_active = cx
+        .try_global::<GradientStudioState>()
+        .is_some_and(|state| {
+            state.enabled && state.breathe && state.has_any_motion() && window.is_window_active()
+        });
+    if !breathe_active {
+        return;
+    }
+
+    let win_id = window.window_handle().window_id();
+    let should_spawn = PENDING_BREATHE_REFRESHES.with(|set| set.borrow_mut().insert(win_id));
+    if should_spawn {
+        let interval = Duration::from_secs_f32(1.0 / 24.0);
+        window
+            .spawn(cx, async move |cx| {
+                cx.background_executor().timer(interval).await;
+                PENDING_BREATHE_REFRESHES.with(|set| {
+                    set.borrow_mut().remove(&win_id);
+                });
+                let _ = cx.update(|window, _| {
+                    window.repaint_cached();
+                });
+            })
+            .detach();
+    }
+}
+
 fn render_aurora_element(
     state: &GradientStudioState,
     region: Option<PanelRegion>,
     shape: AuroraShape,
     opaque_base: Option<Hsla>,
     viewport_locked: bool,
-    window: &mut Window,
+    _window: &mut Window,
     cx: &App,
 ) -> AnyElement {
     let is_light = cx.theme().appearance() == Appearance::Light;
@@ -483,30 +513,6 @@ fn render_aurora_element(
     let stops = state.resolved_stops(region);
     let base_angle = state.base_angle;
     let cfg = state.breathe_cfg;
-    let any_motion = cfg.full_wave || cfg.pulse || cfg.shimmer || cfg.auto_morph;
-    let breathe_active = state.breathe && any_motion && window.is_window_active();
-
-    // Drive a unified 24 FPS full-window refresh while Breathe is active so EVERY view and child
-    // panel (threads, tabs, files, chatbox, cursors, selections, scrollbars, Studio) animates
-    // in smooth lockstep instead of staying cached until hovered/clicked.
-    if breathe_active {
-        let win_id = window.window_handle().window_id();
-        let should_spawn = PENDING_BREATHE_REFRESHES.with(|set| set.borrow_mut().insert(win_id));
-        if should_spawn {
-            let interval = Duration::from_secs_f32(1.0 / 24.0);
-            window
-                .spawn(cx, async move |cx| {
-                    cx.background_executor().timer(interval).await;
-                    PENDING_BREATHE_REFRESHES.with(|set| {
-                        set.borrow_mut().remove(&win_id);
-                    });
-                    let _ = cx.update(|window, _| {
-                        window.refresh();
-                    });
-                })
-                .detach();
-        }
-    }
 
     canvas(
         |_, _, _| (),
@@ -517,61 +523,70 @@ fn render_aurora_element(
                 return;
             }
 
-            if let Some(bg) = opaque_base {
-                window.paint_quad(fill(bounds, bg));
-            }
+            // Paint dynamically so 24 FPS Breathe ticks use `window.repaint_cached()` instead of
+            // `window.refresh()`, keeping Dock/Pane/ThreadView/Editor layout & prepaint caches
+            // completely hot while every gradient element breathes in smooth lockstep.
+            window.paint_dynamic(cx, move |window, cx| {
+                schedule_breathe_repaint_if_needed(window, cx);
 
-            let (active_stops, angle, scale, focal) = cx
-                .try_global::<GradientStudioState>()
-                .filter(|s| s.enabled)
-                .map(|live_state| {
-                    let live_stops = live_state.resolved_stops(region);
-                    let live_cfg = live_state.breathe_cfg;
-                    let live_scale = if cx.theme().appearance() == Appearance::Light {
-                        0.90
-                    } else {
-                        1.00
-                    } * live_state.intensity;
-                    if let Some(delta) = live_state.current_breathe_delta() {
-                        let color_delta = live_state.color_delta_for(delta);
-                        evaluate_aurora_frame(
-                            delta,
-                            color_delta,
-                            live_stops,
-                            live_state.base_angle,
-                            live_scale,
-                            live_cfg,
-                        )
-                    } else {
-                        (
-                            live_stops,
-                            live_state.base_angle,
-                            live_scale,
-                            compute_focal_points(None, live_cfg),
-                        )
-                    }
-                })
-                .unwrap_or_else(|| (stops, base_angle, base_scale, compute_focal_points(None, cfg)));
+                if let Some(bg) = opaque_base {
+                    window.paint_quad(fill(bounds, bg));
+                }
 
-            if viewport_locked {
-                let viewport_bounds = Bounds {
-                    origin: point(px(0.0), px(0.0)),
-                    size: window.viewport_size(),
-                };
-                window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                    paint_aurora_shape(
-                        viewport_bounds,
-                        active_stops,
-                        angle,
-                        scale,
-                        focal,
-                        shape,
-                        window,
-                    );
-                });
-            } else {
-                paint_aurora_shape(bounds, active_stops, angle, scale, focal, shape, window);
-            }
+                let (active_stops, angle, scale, focal) = cx
+                    .try_global::<GradientStudioState>()
+                    .filter(|s| s.enabled)
+                    .map(|live_state| {
+                        let live_stops = live_state.resolved_stops(region);
+                        let live_cfg = live_state.breathe_cfg;
+                        let live_scale = if cx.theme().appearance() == Appearance::Light {
+                            0.90
+                        } else {
+                            1.00
+                        } * live_state.intensity;
+                        if let Some(delta) = live_state.current_breathe_delta() {
+                            let color_delta = live_state.color_delta_for(delta);
+                            evaluate_aurora_frame(
+                                delta,
+                                color_delta,
+                                live_stops,
+                                live_state.base_angle,
+                                live_scale,
+                                live_cfg,
+                            )
+                        } else {
+                            (
+                                live_stops,
+                                live_state.base_angle,
+                                live_scale,
+                                compute_focal_points(None, live_cfg),
+                            )
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        (stops, base_angle, base_scale, compute_focal_points(None, cfg))
+                    });
+
+                if viewport_locked {
+                    let viewport_bounds = Bounds {
+                        origin: point(px(0.0), px(0.0)),
+                        size: window.viewport_size(),
+                    };
+                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                        paint_aurora_shape(
+                            viewport_bounds,
+                            active_stops,
+                            angle,
+                            scale,
+                            focal,
+                            shape,
+                            window,
+                        );
+                    });
+                } else {
+                    paint_aurora_shape(bounds, active_stops, angle, scale, focal, shape, window);
+                }
+            });
         },
     )
     .absolute()

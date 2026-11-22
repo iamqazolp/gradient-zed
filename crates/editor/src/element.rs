@@ -5998,26 +5998,33 @@ impl EditorElement {
 
             for (player_color, selections) in &layout.selections {
                 for selection in selections.iter() {
-                    let selection_bg: gpui::Background = if selection.is_local {
+                    if selection.is_local && ui::gradient_chrome::is_enabled(cx) {
                         let opacity_scale = if player_color.selection.a < 0.25 {
                             0.65
                         } else {
                             1.0
                         };
-                        ui::gradient_chrome::selection_background(window, opacity_scale, cx)
-                            .unwrap_or_else(|| player_color.selection.into())
+                        self.paint_dynamic_gradient_selection_range(
+                            selection.range.clone(),
+                            opacity_scale,
+                            player_color.selection,
+                            corner_radius,
+                            corner_radius * 2.,
+                            layout,
+                            window,
+                            cx,
+                        );
                     } else {
-                        player_color.selection.into()
-                    };
-                    self.paint_highlighted_range(
-                        selection.range.clone(),
-                        true,
-                        selection_bg,
-                        corner_radius,
-                        corner_radius * 2.,
-                        layout,
-                        window,
-                    );
+                        self.paint_highlighted_range(
+                            selection.range.clone(),
+                            true,
+                            player_color.selection,
+                            corner_radius,
+                            corner_radius * 2.,
+                            layout,
+                            window,
+                        );
+                    }
 
                     if selection.is_local && !selection.range.is_empty() {
                         invisible_display_ranges.push(selection.range.clone());
@@ -6612,6 +6619,108 @@ impl EditorElement {
         });
     }
 
+    fn paint_dynamic_gradient_selection_range(
+        &self,
+        range: Range<DisplayPoint>,
+        opacity_scale: f32,
+        fallback: Hsla,
+        corner_radius: Pixels,
+        line_end_overshoot: Pixels,
+        layout: &EditorLayout,
+        window: &mut Window,
+        cx: &App,
+    ) {
+        if let Some(highlighted_range) = self.build_highlighted_range(
+            range,
+            fallback,
+            corner_radius,
+            line_end_overshoot,
+            layout,
+        ) {
+            highlighted_range.paint_with_dynamic_gradient_selection(
+                true,
+                opacity_scale,
+                fallback,
+                layout.position_map.text_hitbox.bounds,
+                window,
+                cx,
+            );
+        }
+    }
+
+    fn build_highlighted_range(
+        &self,
+        range: Range<DisplayPoint>,
+        color: Hsla,
+        corner_radius: Pixels,
+        line_end_overshoot: Pixels,
+        layout: &EditorLayout,
+    ) -> Option<HighlightedRange> {
+        let start_row = layout.visible_display_row_range.start;
+        let end_row = layout.visible_display_row_range.end;
+        if range.start == range.end {
+            return None;
+        }
+        let row_range = if range.end.column() == 0 {
+            cmp::max(range.start.row(), start_row)..cmp::min(range.end.row(), end_row)
+        } else {
+            cmp::max(range.start.row(), start_row)
+                ..cmp::min(range.end.row().next_row(), end_row)
+        };
+
+        Some(HighlightedRange {
+            color,
+            line_height: layout.position_map.line_height,
+            corner_radius,
+            start_y: layout.content_origin.y
+                + Pixels::from(
+                    (row_range.start.as_f64() - layout.position_map.scroll_position.y)
+                        * ScrollOffset::from(layout.position_map.line_height),
+                ),
+            lines: row_range
+                .iter_rows()
+                .map(|row| {
+                    let line_layout =
+                        &layout.position_map.line_layouts[row.minus(start_row) as usize];
+                    let alignment_offset =
+                        line_layout.alignment_offset(layout.text_align, layout.content_width);
+                    HighlightedRangeLine {
+                        start_x: if row == range.start.row() {
+                            layout.content_origin.x
+                                + Pixels::from(
+                                    ScrollPixelOffset::from(
+                                        line_layout.x_for_index(range.start.column() as usize)
+                                            + alignment_offset,
+                                    ) - layout.position_map.scroll_pixel_position.x,
+                                )
+                        } else {
+                            layout.content_origin.x + alignment_offset
+                                - Pixels::from(layout.position_map.scroll_pixel_position.x)
+                        },
+                        end_x: if row == range.end.row() {
+                            layout.content_origin.x
+                                + Pixels::from(
+                                    ScrollPixelOffset::from(
+                                        line_layout.x_for_index(range.end.column() as usize)
+                                            + alignment_offset,
+                                    ) - layout.position_map.scroll_pixel_position.x,
+                                )
+                        } else {
+                            Pixels::from(
+                                ScrollPixelOffset::from(
+                                    layout.content_origin.x
+                                        + line_layout.width
+                                        + alignment_offset
+                                        + line_end_overshoot,
+                                ) - layout.position_map.scroll_pixel_position.x,
+                            )
+                        },
+                    }
+                })
+                .collect(),
+        })
+    }
+
     fn paint_highlighted_range(
         &self,
         range: Range<DisplayPoint>,
@@ -6622,69 +6731,14 @@ impl EditorElement {
         layout: &EditorLayout,
         window: &mut Window,
     ) {
-        let start_row = layout.visible_display_row_range.start;
-        let end_row = layout.visible_display_row_range.end;
-        if range.start != range.end {
-            let background: gpui::Background = color.into();
-            let row_range = if range.end.column() == 0 {
-                cmp::max(range.start.row(), start_row)..cmp::min(range.end.row(), end_row)
-            } else {
-                cmp::max(range.start.row(), start_row)
-                    ..cmp::min(range.end.row().next_row(), end_row)
-            };
-
-            let highlighted_range = HighlightedRange {
-                color: background.as_solid().unwrap_or_default(),
-                line_height: layout.position_map.line_height,
-                corner_radius,
-                start_y: layout.content_origin.y
-                    + Pixels::from(
-                        (row_range.start.as_f64() - layout.position_map.scroll_position.y)
-                            * ScrollOffset::from(layout.position_map.line_height),
-                    ),
-                lines: row_range
-                    .iter_rows()
-                    .map(|row| {
-                        let line_layout =
-                            &layout.position_map.line_layouts[row.minus(start_row) as usize];
-                        let alignment_offset =
-                            line_layout.alignment_offset(layout.text_align, layout.content_width);
-                        HighlightedRangeLine {
-                            start_x: if row == range.start.row() {
-                                layout.content_origin.x
-                                    + Pixels::from(
-                                        ScrollPixelOffset::from(
-                                            line_layout.x_for_index(range.start.column() as usize)
-                                                + alignment_offset,
-                                        ) - layout.position_map.scroll_pixel_position.x,
-                                    )
-                            } else {
-                                layout.content_origin.x + alignment_offset
-                                    - Pixels::from(layout.position_map.scroll_pixel_position.x)
-                            },
-                            end_x: if row == range.end.row() {
-                                layout.content_origin.x
-                                    + Pixels::from(
-                                        ScrollPixelOffset::from(
-                                            line_layout.x_for_index(range.end.column() as usize)
-                                                + alignment_offset,
-                                        ) - layout.position_map.scroll_pixel_position.x,
-                                    )
-                            } else {
-                                Pixels::from(
-                                    ScrollPixelOffset::from(
-                                        layout.content_origin.x
-                                            + line_layout.width
-                                            + alignment_offset
-                                            + line_end_overshoot,
-                                    ) - layout.position_map.scroll_pixel_position.x,
-                                )
-                            },
-                        }
-                    })
-                    .collect(),
-            };
-
+        let background: gpui::Background = color.into();
+        if let Some(highlighted_range) = self.build_highlighted_range(
+            range,
+            background.as_solid().unwrap_or_default(),
+            corner_radius,
+            line_end_overshoot,
+            layout,
+        ) {
             highlighted_range.paint_with_background(
                 fill,
                 background,
@@ -11170,14 +11224,13 @@ impl CursorLayout {
                 if let Some(name) = &mut self.cursor_name {
                     name.paint(window, cx);
                 }
-                let path_bg = ui::gradient_chrome::cursor_path_background(
+                ui::gradient_chrome::paint_cursor_path(
+                    path,
                     is_underline,
-                    self.color.a,
+                    self.color,
                     window,
                     cx,
-                )
-                .unwrap_or_else(|| self.color.into());
-                window.paint_path(path, path_bg);
+                );
 
                 if !animated_corners_overlap_target(bounds, &corners) {
                     return;
@@ -11263,39 +11316,58 @@ impl HighlightedRange {
         bounds: Bounds<Pixels>,
         window: &mut Window,
     ) {
+        self.for_each_line_path(fill, bounds, |path| {
+            window.paint_path(path, background);
+        });
+    }
+
+    pub fn paint_with_dynamic_gradient_selection(
+        &self,
+        fill: bool,
+        opacity_scale: f32,
+        fallback: Hsla,
+        bounds: Bounds<Pixels>,
+        window: &mut Window,
+        cx: &App,
+    ) {
+        self.for_each_line_path(fill, bounds, |path| {
+            ui::gradient_chrome::paint_selection_path(path, opacity_scale, fallback, window, cx);
+        });
+    }
+
+    fn for_each_line_path(
+        &self,
+        fill: bool,
+        bounds: Bounds<Pixels>,
+        mut paint_path: impl FnMut(gpui::Path<Pixels>),
+    ) {
         if self.lines.len() >= 2 && self.lines[0].start_x > self.lines[1].end_x {
-            self.paint_lines(
-                self.start_y,
-                &self.lines[0..1],
-                fill,
-                background,
-                bounds,
-                window,
-            );
-            self.paint_lines(
+            if let Some(path) = self.build_lines_path(self.start_y, &self.lines[0..1], fill, bounds)
+            {
+                paint_path(path);
+            }
+            if let Some(path) = self.build_lines_path(
                 self.start_y + self.line_height,
                 &self.lines[1..],
                 fill,
-                background,
                 bounds,
-                window,
-            );
-        } else {
-            self.paint_lines(self.start_y, &self.lines, fill, background, bounds, window);
+            ) {
+                paint_path(path);
+            }
+        } else if let Some(path) = self.build_lines_path(self.start_y, &self.lines, fill, bounds) {
+            paint_path(path);
         }
     }
 
-    fn paint_lines(
+    fn build_lines_path(
         &self,
         start_y: Pixels,
         lines: &[HighlightedRangeLine],
         fill: bool,
-        background: gpui::Background,
         _bounds: Bounds<Pixels>,
-        window: &mut Window,
-    ) {
+    ) -> Option<gpui::Path<Pixels>> {
         if lines.is_empty() {
-            return;
+            return None;
         }
 
         let first_line = lines.first().unwrap();
@@ -11394,9 +11466,7 @@ impl HighlightedRange {
         }
         builder.line_to(first_top_right - top_curve_width);
 
-        if let Ok(path) = builder.build() {
-            window.paint_path(path, background);
-        }
+        builder.build().ok()
     }
 }
 

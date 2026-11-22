@@ -69,10 +69,13 @@ fn render_live_gradient_bar(
             canvas(
                 |_, _, _| (),
                 move |bounds: Bounds<Pixels>, (), window, cx| {
-                    let stops = ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
-                        .map(|(s, _)| s)
-                        .unwrap_or(fallback);
-                    paint_gradient_bar_canvas(bounds, height, stops, alpha, window);
+                    window.paint_dynamic(cx, move |window, cx| {
+                        let stops =
+                            ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
+                                .map(|(s, _)| s)
+                                .unwrap_or(fallback);
+                        paint_gradient_bar_canvas(bounds, height, stops, alpha, window);
+                    });
                 },
             )
             .size_full(),
@@ -93,21 +96,24 @@ fn render_live_orb(
             canvas(
                 |_, _, _| (),
                 move |bounds: Bounds<Pixels>, (), window, cx| {
-                    let stops = ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
-                        .map(|(s, _)| s)
-                        .unwrap_or(fallback);
-                    window.paint_quad(quad(
-                        bounds,
-                        Corners::all(px(size_px * 0.5)),
-                        linear_gradient(
-                            135.0,
-                            linear_color_stop(rgb_to_hsla(stops[0], alpha), 0.0),
-                            linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
-                        ),
-                        Edges::default(),
-                        transparent_black(),
-                        BorderStyle::Solid,
-                    ));
+                    window.paint_dynamic(cx, move |window, cx| {
+                        let stops =
+                            ui::gradient_chrome::live_stops_and_pulse(override_stops, window, cx)
+                                .map(|(s, _)| s)
+                                .unwrap_or(fallback);
+                        window.paint_quad(quad(
+                            bounds,
+                            Corners::all(px(size_px * 0.5)),
+                            linear_gradient(
+                                135.0,
+                                linear_color_stop(rgb_to_hsla(stops[0], alpha), 0.0),
+                                linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
+                            ),
+                            Edges::default(),
+                            transparent_black(),
+                            BorderStyle::Solid,
+                        ));
+                    });
                 },
             )
             .size_full(),
