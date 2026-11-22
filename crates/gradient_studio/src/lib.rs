@@ -192,6 +192,15 @@ mod tests {
         assert!((motion_after_shimmer - motion_before).abs() < 0.01);
     }
 
+    #[test]
+    fn breathe_fps_scales_gently_between_10_and_16_fps() {
+        assert_eq!(overlay::breathe_fps_for_speed(25.0), 10.0);
+        assert_eq!(overlay::breathe_fps_for_speed(60.0), 10.0);
+        assert_eq!(overlay::breathe_fps_for_speed(100.0), 12.0);
+        assert_eq!(overlay::breathe_fps_for_speed(200.0), 16.0);
+        assert_eq!(overlay::breathe_fps_for_speed(250.0), 16.0);
+    }
+
     #[gpui::test]
     fn repaint_cached_updates_dynamic_gradient_without_rerendering_cached_child(
         cx: &mut gpui::TestAppContext,

@@ -809,7 +809,7 @@ fn render_gradient_frame_canvas_inner(
 
 /// Mounts an absolute `inset_0()` GPU-SDF rounded breathing gradient frame canvas as the FIRST
 /// child of any `relative()` container (Code Box, Opened Thread, Opened File, Active Tab, Buttons).
-/// Automatically breathes in lockstep at 24 FPS!
+/// Automatically breathes in lockstep via cached dynamic scene repaints!
 pub fn render_gradient_frame_canvas(
     override_stops: Option<FourStops>,
     radius_px: f32,

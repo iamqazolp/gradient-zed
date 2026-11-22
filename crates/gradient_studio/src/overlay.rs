@@ -469,20 +469,28 @@ fn evaluate_aurora_frame(
     (active_stops, angle, base_scale * pulse_mult, focal)
 }
 
+/// Computes a gentle, battery-friendly Breathe refresh rate (10–16 FPS) scaled to the user's
+/// `speed_pct`, avoiding unnecessary GPU/CPU wakeups on slow 18–36s ambient aurora cycles.
+pub(crate) fn breathe_fps_for_speed(speed_pct: f32) -> f32 {
+    let speed_mult = (speed_pct / 100.0).clamp(0.25, 2.5);
+    (12.0 * speed_mult).clamp(10.0, 16.0)
+}
+
 fn schedule_breathe_repaint_if_needed(window: &Window, cx: &App) {
-    let breathe_active = cx
+    let breathe_fps = cx
         .try_global::<GradientStudioState>()
-        .is_some_and(|state| {
+        .filter(|state| {
             state.enabled && state.breathe && state.has_any_motion() && window.is_window_active()
-        });
-    if !breathe_active {
+        })
+        .map(|state| breathe_fps_for_speed(state.breathe_cfg.speed_pct));
+    let Some(fps) = breathe_fps else {
         return;
-    }
+    };
 
     let win_id = window.window_handle().window_id();
     let should_spawn = PENDING_BREATHE_REFRESHES.with(|set| set.borrow_mut().insert(win_id));
     if should_spawn {
-        let interval = Duration::from_secs_f32(1.0 / 24.0);
+        let interval = Duration::from_secs_f32(1.0 / fps);
         window
             .spawn(cx, async move |cx| {
                 cx.background_executor().timer(interval).await;
@@ -523,8 +531,8 @@ fn render_aurora_element(
                 return;
             }
 
-            // Paint dynamically so 24 FPS Breathe ticks use `window.repaint_cached()` instead of
-            // `window.refresh()`, keeping Dock/Pane/ThreadView/Editor layout & prepaint caches
+            // Paint dynamically so Breathe ticks (10–16 FPS) use `window.repaint_cached()` instead
+            // of `window.refresh()`, keeping Dock/Pane/ThreadView/Editor layout & prepaint caches
             // completely hot while every gradient element breathes in smooth lockstep.
             window.paint_dynamic(cx, move |window, cx| {
                 schedule_breathe_repaint_if_needed(window, cx);
