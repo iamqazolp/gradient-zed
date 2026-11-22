@@ -25,6 +25,29 @@
   - `.github/workflows/sync-upstream.yml` checks daily for new `zed-industries/zed` stable releases and opens a sync PR automatically.
   - `.github/workflows/gradient-zed-release.yml` builds and publishes `GradientZed-aarch64.dmg` on GitHub Actions.
 
+## Install & Update on macOS (Apple Silicon)
+
+### Option 1: From Browser Download (DMG)
+
+1. Download [`GradientZed-aarch64.dmg`](https://github.com/iamqazolp/gradient-zed/releases/latest/download/GradientZed-aarch64.dmg) and drag **Gradient Zed.app** into `/Applications`.
+2. Because this community build is ad-hoc signed, clear the browser quarantine attribute before first launch (or click **Open Anyway** in **System Settings → Privacy & Security**):
+   ```bash
+   xattr -cr "/Applications/Gradient Zed.app"
+   ```
+
+### Option 2: One-Command Install / Update via Terminal
+
+Downloads the latest release without browser quarantine, replaces `/Applications/Gradient Zed.app`, and clears extended attributes automatically:
+
+```bash
+curl -fL "https://github.com/iamqazolp/gradient-zed/releases/latest/download/GradientZed-aarch64.dmg" -o /tmp/GradientZed-aarch64.dmg && \
+hdiutil attach -nobrowse /tmp/GradientZed-aarch64.dmg -mountroot /tmp && \
+rsync -a --delete "/tmp/Gradient Zed/Gradient Zed.app/" "/Applications/Gradient Zed.app/" && \
+xattr -cr "/Applications/Gradient Zed.app" && \
+hdiutil detach "/tmp/Gradient Zed" && \
+rm -f /tmp/GradientZed-aarch64.dmg
+```
+
 ## Keyboard Shortcuts
 
 | Action | Shortcut |

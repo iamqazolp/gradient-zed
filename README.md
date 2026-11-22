@@ -1,3 +1,27 @@
+# Gradient Zed
+
+> See [GRADIENT_ZED.md](./GRADIENT_ZED.md) for Gradient Studio features, keyboard shortcuts, and upstream sync details.
+
+### Gradient Zed macOS Installation (Apple Silicon)
+
+1. Download [`GradientZed-aarch64.dmg`](https://github.com/iamqazolp/gradient-zed/releases/latest/download/GradientZed-aarch64.dmg) and drag **Gradient Zed.app** into `/Applications`.
+2. Clear the browser quarantine attribute before first launch (or click **Open Anyway** in **System Settings → Privacy & Security**):
+   ```bash
+   xattr -cr "/Applications/Gradient Zed.app"
+   ```
+
+Or install / update to the latest release in one command:
+```bash
+curl -fL "https://github.com/iamqazolp/gradient-zed/releases/latest/download/GradientZed-aarch64.dmg" -o /tmp/GradientZed-aarch64.dmg && \
+hdiutil attach -nobrowse /tmp/GradientZed-aarch64.dmg -mountroot /tmp && \
+rsync -a --delete "/tmp/Gradient Zed/Gradient Zed.app/" "/Applications/Gradient Zed.app/" && \
+xattr -cr "/Applications/Gradient Zed.app" && \
+hdiutil detach "/tmp/Gradient Zed" && \
+rm -f /tmp/GradientZed-aarch64.dmg
+```
+
+---
+
 # Zed
 
 [![Zed](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/zed-industries/zed/main/assets/badge/v0.json)](https://zed.dev)
