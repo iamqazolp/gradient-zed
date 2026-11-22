@@ -1,7 +1,7 @@
 <div align="center">
   <img src="./crates/zed/resources/app-icon.png" alt="Gradient Zed icon" width="112" />
   <h1>Gradient Zed</h1>
-  <p>A thin, upstream-tracking fork of <a href="https://github.com/zed-industries/zed">Zed</a> with true GPU-accelerated 4-corner aurora gradients, frosted glass panels, 24 FPS synchronized Breathing Aurora effects, and an interactive Gradient Studio.</p>
+  <p>A thin, upstream-tracking fork of <a href="https://github.com/zed-industries/zed">Zed</a> with true GPU-accelerated 4-corner aurora gradients, frosted glass panels, lightweight synchronized Breathing Aurora effects, and an interactive Gradient Studio.</p>
 </div>
 
 > See [GRADIENT_ZED.md](./GRADIENT_ZED.md) for Gradient Studio features, keyboard shortcuts, and upstream sync details.

@@ -10,7 +10,7 @@
 - **Gradient Studio Crate (`crates/gradient_studio/`)**:
   - **30 curated 4-color palettes** (`Gradient Classic`, `Borealis`, `Sakura`, `Matcha Yuzu`, `Iris Dusk`, `Glacier`, `Pure Blue`, etc.), inline 4-stop HSL color tuner, hex mix importer, and procedural harmonious randomizer.
   - **Status Bar Controls**: **`↻`** quick-roll pill (right-click to toggle overlay), **`Breathe`** toggle pill, and **`Studio ▴`** live popover menu.
-  - **Synced Breathing Aurora (24 FPS)**: toggleable **Full Wave**, **Pulse**, **Shimmer**, and **Auto-Morph** modes that smoothly animate the backdrop, chatbox frame, gradient borders, scrollbars, cursors, and text selections in lockstep with zero color jumps.
+  - **Synced Breathing Aurora (10–16 FPS cached repaint)**: toggleable **Full Wave**, **Pulse**, **Shimmer**, and **Auto-Morph** modes that smoothly animate the backdrop, chatbox frame, gradient borders, scrollbars, cursors, and text selections in lockstep with zero color jumps and cached view layout/prepaint.
   - **Seamless / Per-Panel Modes**: one continuous aurora wash across the whole window, or toggle **Editor**, **Explorer**, **Chat**, **Terminal**, and **Bars** independently.
   - **Intensity (`20%–300%`)**, **Favorites**, **Swap Corners**, **Undo history**, persisted to `~/.config/zed/gradient_studio.json`.
 - **12 Built-in Gradient Themes** (`assets/themes/gradient/gradient.json`):
