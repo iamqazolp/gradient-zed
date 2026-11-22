@@ -80,19 +80,6 @@ fn render_live_gradient_bar(
         .into_any_element()
 }
 
-fn render_orb(stops: FourStops, size_px: f32, alpha: f32) -> AnyElement {
-    div()
-        .size(px(size_px))
-        .rounded_full()
-        .flex_shrink_0()
-        .bg(linear_gradient(
-            135.0,
-            linear_color_stop(rgb_to_hsla(stops[0], alpha), 0.0),
-            linear_color_stop(rgb_to_hsla(stops[3], alpha), 1.0),
-        ))
-        .into_any_element()
-}
-
 fn render_live_orb(
     fallback: FourStops,
     override_stops: Option<FourStops>,
@@ -671,6 +658,7 @@ impl GradientStudioPopover {
         slider_kind: ActiveSlider,
         ratio: f32,
         track_stops: FourStops,
+        live_track: Option<Option<FourStops>>,
         bounds_cell: Rc<Cell<Bounds<Pixels>>>,
         accent: Hsla,
         cx: &mut Context<Self>,
@@ -679,6 +667,10 @@ impl GradientStudioPopover {
         let bounds_for_canvas = bounds_cell.clone();
         let bounds_for_down = bounds_cell.clone();
         let bounds_for_move = bounds_cell;
+        let track_el = match live_track {
+            Some(override_stops) => render_live_gradient_bar(track_stops, override_stops, 7.0, 0.92),
+            None => render_gradient_bar(track_stops, 7.0, 0.92),
+        };
 
         div()
             .id(id)
@@ -719,12 +711,7 @@ impl GradientStudioPopover {
                 .inset_0(),
             )
             // Full-width smooth 4-stop rainbow track
-            .child(
-                div()
-                    .w_full()
-                    .h(px(7.))
-                    .child(render_live_gradient_bar(track_stops, None, 7.0, 0.92)),
-            )
+            .child(div().w_full().h(px(7.)).child(track_el))
             // Crisp white circular thumb with colored ring
             .child(
                 div()
@@ -916,11 +903,13 @@ impl Render for GradientStudioPopover {
         let intensity_ratio = ((intensity - 0.2) / (3.0 - 0.2)).clamp(0.0, 1.0);
         let speed_ratio = ((breathe_cfg.speed_pct - 25.0) / (250.0 - 25.0)).clamp(0.0, 1.0);
 
+        let scope_override = active_scope.map(|_| active_stops);
         let intensity_slider = self.render_rainbow_slider(
             "studio-intensity-slider",
             ActiveSlider::Intensity,
             intensity_ratio,
             active_stops,
+            Some(scope_override),
             self.intensity_bounds.clone(),
             accent,
             cx,
@@ -930,6 +919,7 @@ impl Render for GradientStudioPopover {
             ActiveSlider::Speed,
             speed_ratio,
             active_stops,
+            Some(scope_override),
             self.speed_bounds.clone(),
             accent,
             cx,
@@ -1001,6 +991,7 @@ impl Render for GradientStudioPopover {
                 ActiveSlider::Hue,
                 h / 360.0,
                 hue_track,
+                None,
                 self.hue_bounds.clone(),
                 accent,
                 cx,
@@ -1010,6 +1001,7 @@ impl Render for GradientStudioPopover {
                 ActiveSlider::Sat,
                 s / 100.0,
                 sat_track,
+                None,
                 self.sat_bounds.clone(),
                 accent,
                 cx,
@@ -1019,6 +1011,7 @@ impl Render for GradientStudioPopover {
                 ActiveSlider::Light,
                 ((l - 12.0) / 76.0).clamp(0.0, 1.0),
                 light_track,
+                None,
                 self.light_bounds.clone(),
                 accent,
                 cx,
@@ -1112,7 +1105,12 @@ impl Render for GradientStudioPopover {
                     .relative()
                     .w_full()
                     // 3px top rainbow accent bar
-                    .child(render_gradient_bar(active_stops, 3.0, 0.95))
+                    .child(render_live_gradient_bar(
+                        active_stops,
+                        active_scope.map(|_| active_stops),
+                        3.0,
+                        0.95,
+                    ))
                     // Main body container
                     .child(
                         v_flex()
@@ -1517,8 +1515,11 @@ impl Render for GradientStudioPopover {
                                                 h_flex()
                                                     .gap_1()
                                                     .items_center()
-                                                    .child(render_orb(
+                                                    .child(render_live_orb(
                                                         region_stops,
+                                                        component_palettes
+                                                            .get(region)
+                                                            .map(|c| c.stops),
                                                         8.0,
                                                         if is_on { 0.95 } else { 0.25 },
                                                     ))
@@ -1591,7 +1592,12 @@ impl Render for GradientStudioPopover {
                                     .bg(glass_surface)
                                     .hover(move |s| s.bg(glass_surface_hover))
                                     .on_click(|_, _, cx| update_state(cx, |s| s.toggle_seamless()))
-                                    .child(render_gradient_bar(active_stops, 7.0, 0.90))
+                                    .child(render_live_gradient_bar(
+                                        active_stops,
+                                        active_scope.map(|_| active_stops),
+                                        7.0,
+                                        0.90,
+                                    ))
                                     .child(
                                         Label::new(if seamless {
                                             "● Seamless Mode: ON (Click for Per-Component Split Gradients)"
@@ -1665,7 +1671,12 @@ impl Render for GradientStudioPopover {
                                                         s.clear_component_palette(panel)
                                                     })
                                                 })
-                                                .child(render_gradient_bar(global_stops, 6.0, 0.90))
+                                                .child(render_live_gradient_bar(
+                                                    global_stops,
+                                                    None,
+                                                    6.0,
+                                                    0.90,
+                                                ))
                                                 .child(
                                                     Label::new(if is_unified {
                                                         "⇄ Same as All (Unified)"

@@ -14,7 +14,7 @@ thread_local! {
 }
 use theme::{ActiveTheme, Appearance};
 
-use crate::palettes::{CURATED_PALETTES, FourStops, lerp_stops, rgb_to_hsla};
+use crate::palettes::{CURATED_PALETTES, FourStops, rgb_to_hsla};
 use crate::state::{BreatheConfig, GradientStudioState, PanelRegion};
 use crate::theme_glass::canvas_background;
 
@@ -390,12 +390,17 @@ pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyEleme
                 .try_global::<GradientStudioState>()
                 .filter(|s| s.enabled)
                 .map(|state| {
-                    let any_motion = state.breathe_cfg.full_wave
-                        || state.breathe_cfg.pulse
-                        || state.breathe_cfg.shimmer
-                        || state.breathe_cfg.auto_morph;
+                    let any_motion = state.has_any_motion();
                     if let Some(delta) = state.current_breathe_delta().filter(|_| any_motion) {
-                        evaluate_aurora_frame(delta, stops, 135.0, base_scale, state.breathe_cfg)
+                        let color_delta = state.color_delta_for(delta);
+                        evaluate_aurora_frame(
+                            delta,
+                            color_delta,
+                            stops,
+                            135.0,
+                            base_scale,
+                            state.breathe_cfg,
+                        )
                     } else {
                         (
                             stops,
@@ -431,12 +436,14 @@ pub fn render_studio_card_backdrop(stops: FourStops, is_light: bool) -> AnyEleme
 
 fn evaluate_aurora_frame(
     delta: f32,
+    color_delta: f32,
     stops: FourStops,
     base_angle: f32,
     base_scale: f32,
     cfg: BreatheConfig,
 ) -> (FourStops, f32, f32, [(f32, f32); 4]) {
     let phase = delta * TAU;
+    let color_phase = color_delta * TAU;
     let focal = compute_focal_points(Some(phase), cfg);
     let pulse_mult = if cfg.pulse {
         1.0 + 0.18 * (phase * 2.0).sin()
@@ -444,26 +451,18 @@ fn evaluate_aurora_frame(
         1.0
     };
     let angle = if cfg.shimmer {
-        (base_angle + 28.0 * phase.sin()).rem_euclid(360.0)
+        (base_angle + 28.0 * color_phase.sin()).rem_euclid(360.0)
     } else {
         base_angle
     };
     let mut active_stops = if cfg.auto_morph && !CURATED_PALETTES.is_empty() {
-        let count = CURATED_PALETTES.len().min(12);
-        let pos = delta * count as f32;
-        let idx_a = (pos.floor() as usize) % count;
-        let idx_b = (idx_a + 1) % count;
-        let frac = pos - pos.floor();
-        lerp_stops(
-            CURATED_PALETTES[idx_a].stops,
-            CURATED_PALETTES[idx_b].stops,
-            frac,
-        )
+        let ring = GradientStudioState::morph_ring();
+        ui::gradient_chrome::sample_morph_ring(stops, &ring, color_delta)
     } else {
         stops
     };
     if cfg.shimmer {
-        active_stops = ui::gradient_chrome::shimmer_shift_stops(active_stops, delta * 4.0);
+        active_stops = ui::gradient_chrome::shimmer_shift_stops(active_stops, color_delta * 4.0);
     }
     (active_stops, angle, base_scale * pulse_mult, focal)
 }
@@ -528,21 +527,16 @@ fn render_aurora_element(
                 .map(|live_state| {
                     let live_stops = live_state.resolved_stops(region);
                     let live_cfg = live_state.breathe_cfg;
-                    let live_motion =
-                        live_cfg.full_wave || live_cfg.pulse || live_cfg.shimmer || live_cfg.auto_morph;
                     let live_scale = if cx.theme().appearance() == Appearance::Light {
                         0.90
                     } else {
                         1.00
                     } * live_state.intensity;
-                    let live_delta = if live_state.breathe && live_motion && window.is_window_active() {
-                        live_state.current_breathe_delta()
-                    } else {
-                        live_state.breathe_paused_delta.filter(|_| live_motion)
-                    };
-                    if let Some(delta) = live_delta {
+                    if let Some(delta) = live_state.current_breathe_delta() {
+                        let color_delta = live_state.color_delta_for(delta);
                         evaluate_aurora_frame(
                             delta,
+                            color_delta,
                             live_stops,
                             live_state.base_angle,
                             live_scale,
@@ -593,21 +587,24 @@ fn compute_focal_points(phase_radians: Option<f32>, cfg: BreatheConfig) -> [(f32
     if !cfg.full_wave {
         return base;
     }
-    // Use integer harmonics of TAU so wrapping `delta` from `1.0 -> 0.0` every cycle is 100%
-    // C1-continuous with zero focal position jumps.
+    // Use zero-at-origin integer harmonics of TAU so both `None -> Some(0.0)` when turning
+    // Breathe on AND `1.0 -> 0.0` cycle wraps are 100% C1-continuous with zero focal jumps.
     [
-        (base[0].0 + 0.08 * t.sin(), base[0].1 + 0.06 * t.cos()),
         (
-            base[1].0 + 0.07 * (t + 1.4).cos(),
-            base[1].1 + 0.08 * (2.0 * t + 0.6).sin(),
+            base[0].0 + 0.08 * t.sin(),
+            base[0].1 + 0.06 * (2.0 * t).sin(),
         ),
         (
-            base[2].0 + 0.08 * (t + 2.5).sin(),
-            base[2].1 + 0.06 * (2.0 * t + 1.1).cos(),
+            base[1].0 - 0.07 * (2.0 * t).sin(),
+            base[1].1 + 0.08 * t.sin(),
         ),
         (
-            base[3].0 + 0.07 * (2.0 * t + 3.8).cos(),
-            base[3].1 + 0.07 * (t + 2.2).sin(),
+            base[2].0 + 0.08 * (2.0 * t).sin(),
+            base[2].1 - 0.06 * t.sin(),
+        ),
+        (
+            base[3].0 - 0.07 * t.sin(),
+            base[3].1 - 0.07 * (2.0 * t).sin(),
         ),
     ]
 }

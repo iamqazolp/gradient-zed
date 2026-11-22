@@ -1,6 +1,26 @@
-# Gradient Zed
+<div align="center">
+  <img src="./crates/zed/resources/app-icon.png" alt="Gradient Zed icon" width="112" />
+  <h1>Gradient Zed</h1>
+  <p>A thin, upstream-tracking fork of <a href="https://github.com/zed-industries/zed">Zed</a> with true GPU-accelerated 4-corner aurora gradients, frosted glass panels, 24 FPS synchronized Breathing Aurora effects, and an interactive Gradient Studio.</p>
+</div>
 
 > See [GRADIENT_ZED.md](./GRADIENT_ZED.md) for Gradient Studio features, keyboard shortcuts, and upstream sync details.
+
+### Screenshots
+
+<p align="center">
+  <img src="./docs/screenshots/gradient-studio-overview.jpg" alt="Gradient Zed with Gradient Studio, Breathing Aurora, gradient chatbox, and Explorer" width="100%" />
+</p>
+<p align="center">
+  <sub><strong>Gradient Studio</strong> — live 4-corner aurora backdrop, synced <code>Breathe</code> modes (Full Wave, Pulse, Shimmer, Auto-Morph), 30+ curated &amp; custom palettes, gradient Agent chatbox, and status bar controls.</sub>
+</p>
+
+<p align="center">
+  <img src="./docs/screenshots/gradient-markdown-selection.jpg" alt="4-stop horizontal gradient text selection in Markdown and Agent chat" width="520" />
+</p>
+<p align="center">
+  <sub><strong>Agent Chat &amp; Markdown</strong> — frosted rounded gradient cards with 4-stop horizontal gradient text selection.</sub>
+</p>
 
 ### Gradient Zed macOS Installation (Apple Silicon)
 

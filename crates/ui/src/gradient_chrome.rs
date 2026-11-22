@@ -28,6 +28,7 @@ pub struct GradientChromeState {
     pub breathe: bool,
     pub breathe_origin: Instant,
     pub breathe_paused_delta: Option<f32>,
+    pub breathe_color_offset: f32,
     pub breathe_cycle_secs: f32,
     pub breathe_pulse: bool,
     pub breathe_shimmer: bool,
@@ -48,6 +49,7 @@ impl Default for GradientChromeState {
             breathe: false,
             breathe_origin: Instant::now(),
             breathe_paused_delta: None,
+            breathe_color_offset: 0.0,
             breathe_cycle_secs: 18.0,
             breathe_pulse: true,
             breathe_shimmer: true,
@@ -109,13 +111,40 @@ pub fn shimmer_shift_stops(stops: FourStops, shift: f32) -> FourStops {
     out
 }
 
+/// Samples the Auto-Morph palette ring starting seamlessly from `base` at `delta == 0.0`
+/// so enabling Breathe or Auto-Morph never jumps to `CURATED_PALETTES[0]` (prism rainbow).
+pub fn sample_morph_ring(base: FourStops, ring: &[FourStops], delta: f32) -> FourStops {
+    if ring.is_empty() {
+        return base;
+    }
+    let d = delta.rem_euclid(1.0);
+    if let Some(start_idx) = ring.iter().position(|&p| p == base) {
+        let count = ring.len();
+        let pos = d * count as f32;
+        let step = (pos.floor() as usize) % count;
+        let idx_a = (start_idx + step) % count;
+        let idx_b = (idx_a + 1) % count;
+        let frac = pos - pos.floor();
+        lerp_stops(ring[idx_a], ring[idx_b], frac)
+    } else {
+        let total = ring.len() + 1;
+        let pos = d * total as f32;
+        let slot_a = (pos.floor() as usize) % total;
+        let slot_b = (slot_a + 1) % total;
+        let frac = pos - pos.floor();
+        let stops_a = if slot_a == 0 { base } else { ring[slot_a - 1] };
+        let stops_b = if slot_b == 0 { base } else { ring[slot_b - 1] };
+        lerp_stops(stops_a, stops_b, frac)
+    }
+}
+
 impl GradientChromeState {
-    pub fn live_phase_delta(&self, window_active: bool) -> Option<f32> {
+    pub fn live_phase_delta(&self, _window_active: bool) -> Option<f32> {
         let any_motion = self.breathe_pulse || self.breathe_shimmer || self.breathe_auto_morph;
         if !any_motion {
             return None;
         }
-        if self.breathe && window_active {
+        if self.breathe {
             let cycle = self.breathe_cycle_secs.clamp(5.0, 72.0);
             let base = self.breathe_paused_delta.unwrap_or(0.0);
             let elapsed = self.breathe_origin.elapsed().as_secs_f32() / cycle;
@@ -123,6 +152,11 @@ impl GradientChromeState {
         } else {
             self.breathe_paused_delta
         }
+    }
+
+    #[inline]
+    pub fn color_phase_delta(&self, motion_delta: f32) -> f32 {
+        (motion_delta + self.breathe_color_offset).rem_euclid(1.0)
     }
 
     pub fn live_stops_and_pulse(
@@ -135,20 +169,16 @@ impl GradientChromeState {
             return (base, 1.0);
         };
         let phase = delta * TAU;
+        let color_delta = self.color_phase_delta(delta);
 
         let mut stops = if self.breathe_auto_morph && !self.morph_palettes.is_empty() {
-            let count = self.morph_palettes.len();
-            let pos = delta * count as f32;
-            let idx_a = (pos.floor() as usize) % count;
-            let idx_b = (idx_a + 1) % count;
-            let frac = pos - pos.floor();
-            lerp_stops(self.morph_palettes[idx_a], self.morph_palettes[idx_b], frac)
+            sample_morph_ring(base, &self.morph_palettes, color_delta)
         } else {
             base
         };
 
         if self.breathe_shimmer {
-            stops = shimmer_shift_stops(stops, delta * 4.0);
+            stops = shimmer_shift_stops(stops, color_delta * 4.0);
         }
 
         let pulse = if self.breathe_pulse {

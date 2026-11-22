@@ -157,6 +157,7 @@ struct PersistedGradientStudio {
     fav_only: bool,
     base_angle: f32,
     breathe_paused_delta: Option<f32>,
+    breathe_color_offset: f32,
 }
 
 impl Default for PersistedGradientStudio {
@@ -177,6 +178,7 @@ impl Default for PersistedGradientStudio {
             fav_only: false,
             base_angle: 135.0,
             breathe_paused_delta: None,
+            breathe_color_offset: 0.0,
         }
     }
 }
@@ -199,6 +201,7 @@ pub struct GradientStudioState {
     pub history: Vec<(String, FourStops, f32)>,
     pub breathe_origin: Instant,
     pub breathe_paused_delta: Option<f32>,
+    pub breathe_color_offset: f32,
     visual_revision: u64,
     dirty: bool,
     save_task: Option<Task<()>>,
@@ -234,6 +237,7 @@ impl GradientStudioState {
             history: Vec::new(),
             breathe_origin: Instant::now(),
             breathe_paused_delta: p.breathe_paused_delta.map(|d| d.rem_euclid(1.0)),
+            breathe_color_offset: p.breathe_color_offset.rem_euclid(1.0),
             visual_revision: 0,
             dirty: false,
             save_task: None,
@@ -261,6 +265,7 @@ impl GradientStudioState {
             } else {
                 self.breathe_paused_delta
             },
+            breathe_color_offset: self.breathe_color_offset,
         }
     }
 
@@ -350,8 +355,7 @@ impl GradientStudioState {
                 self.palette_name = name;
                 self.stops = stops;
                 self.enabled = true;
-                self.breathe_paused_delta = None;
-                self.breathe_origin = Instant::now();
+                self.reset_color_phase();
                 self.mark_visual_changed();
             }
             Some(panel) => {
@@ -361,8 +365,6 @@ impl GradientStudioState {
                 if !self.panels.is_enabled(panel) {
                     self.panels.toggle(panel);
                 }
-                self.breathe_paused_delta = None;
-                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
         }
@@ -383,8 +385,7 @@ impl GradientStudioState {
                 self.stops = next;
                 self.palette_name = "Custom Mix".to_string();
                 self.enabled = true;
-                self.breathe_paused_delta = None;
-                self.breathe_origin = Instant::now();
+                self.reset_color_phase();
                 self.mark_visual_changed();
             }
             Some(panel) => {
@@ -398,8 +399,6 @@ impl GradientStudioState {
                         stops: next,
                     }),
                 );
-                self.breathe_paused_delta = None;
-                self.breathe_origin = Instant::now();
                 self.mark_visual_changed();
             }
         }
@@ -506,8 +505,7 @@ impl GradientStudioState {
             self.stops = stops;
             self.base_angle = angle;
             self.enabled = true;
-            self.breathe_paused_delta = None;
-            self.breathe_origin = Instant::now();
+            self.reset_color_phase();
             self.mark_visual_changed();
             true
         } else {
@@ -525,12 +523,97 @@ impl GradientStudioState {
         (18.0 / speed_mult).clamp(5.0, 72.0)
     }
 
-    pub fn current_breathe_delta(&self) -> Option<f32> {
-        let any_motion = self.breathe_cfg.full_wave
+    #[inline]
+    pub fn has_any_motion(&self) -> bool {
+        self.breathe_cfg.full_wave
             || self.breathe_cfg.pulse
             || self.breathe_cfg.shimmer
-            || self.breathe_cfg.auto_morph;
-        if !any_motion {
+            || self.breathe_cfg.auto_morph
+    }
+
+    #[inline]
+    pub fn color_delta_for(&self, motion_delta: f32) -> f32 {
+        (motion_delta + self.breathe_color_offset).rem_euclid(1.0)
+    }
+
+    /// Re-anchors color effects (`Auto-Morph`, `Shimmer`) to start at `0.0` at the current
+    /// `motion_delta` without resetting `Full Wave` or `Pulse` motion continuity.
+    fn reset_color_phase(&mut self) {
+        if let Some(d) = self.current_breathe_delta() {
+            self.breathe_color_offset = (-d).rem_euclid(1.0);
+        } else {
+            self.breathe_paused_delta = None;
+            self.breathe_origin = Instant::now();
+            self.breathe_color_offset = 0.0;
+        }
+    }
+
+    /// Returns the curated Prism morph ring shared by the aurora renderer and chrome snapshot.
+    pub fn morph_ring() -> Vec<FourStops> {
+        CURATED_PALETTES
+            .iter()
+            .take(12)
+            .map(|p| p.stops)
+            .collect()
+    }
+
+    /// Evaluates the exact visible 4-stop colors at `color_delta` for `base` using the active
+    /// `auto_morph` and `shimmer` flags.
+    pub fn evaluate_stops_at(&self, base: FourStops, color_delta: Option<f32>) -> FourStops {
+        let Some(delta) = color_delta else {
+            return base;
+        };
+        let mut stops = if self.breathe_cfg.auto_morph && !CURATED_PALETTES.is_empty() {
+            let ring = Self::morph_ring();
+            ui::gradient_chrome::sample_morph_ring(base, &ring, delta)
+        } else {
+            base
+        };
+        if self.breathe_cfg.shimmer {
+            stops = ui::gradient_chrome::shimmer_shift_stops(stops, delta * 4.0);
+        }
+        stops
+    }
+
+    /// Snapshots the currently visible live colors back into `self.stops` (and any custom
+    /// component palettes) and re-anchors `breathe_color_offset` to start cleanly at `0.0` so
+    /// toggling color-mutating Breathe modes (`Shimmer`, `Auto-Morph`) never causes a color jump
+    /// while preserving unbroken `Full Wave` / `Pulse` motion phase.
+    fn bake_live_color_stops(&mut self) {
+        let Some(motion_d) = self.current_breathe_delta() else {
+            self.breathe_paused_delta = Some(0.0);
+            self.breathe_origin = Instant::now();
+            self.breathe_color_offset = 0.0;
+            return;
+        };
+        let color_d = self.color_delta_for(motion_d);
+        let baked = self.evaluate_stops_at(self.stops, Some(color_d));
+        if baked != self.stops {
+            self.stops = baked;
+            if let Some(matched) = CURATED_PALETTES.iter().find(|p| p.stops == baked) {
+                self.palette_name = matched.name.to_string();
+            } else if self.breathe_cfg.auto_morph {
+                self.palette_name = "Aurora Mix".to_string();
+            }
+        }
+        for region in PanelRegion::ALL {
+            if let Some(mut custom) = self.component_palettes.get(region).cloned() {
+                let baked_comp = self.evaluate_stops_at(custom.stops, Some(color_d));
+                if baked_comp != custom.stops {
+                    custom.stops = baked_comp;
+                    self.component_palettes.set(region, Some(custom));
+                }
+            }
+        }
+        if self.breathe_cfg.shimmer {
+            let phase = color_d * std::f32::consts::TAU;
+            self.base_angle = (self.base_angle + 28.0 * phase.sin()).rem_euclid(360.0);
+        }
+        self.breathe_color_offset = (-motion_d).rem_euclid(1.0);
+    }
+
+    pub fn current_breathe_delta(&self) -> Option<f32> {
+        if !self.has_any_motion() {
             return None;
         }
         if self.breathe {
@@ -554,6 +637,11 @@ impl GradientStudioState {
     }
 
     pub fn toggle_breathe_wave(&mut self) {
+        if !self.has_any_motion() {
+            self.breathe_paused_delta = Some(0.0);
+            self.breathe_origin = Instant::now();
+            self.breathe_color_offset = 0.0;
+        }
         self.breathe_cfg.full_wave = !self.breathe_cfg.full_wave;
         if !self.breathe {
             self.breathe_origin = Instant::now();
@@ -563,6 +651,11 @@ impl GradientStudioState {
     }
 
     pub fn toggle_breathe_pulse(&mut self) {
+        if !self.has_any_motion() {
+            self.breathe_paused_delta = Some(0.0);
+            self.breathe_origin = Instant::now();
+            self.breathe_color_offset = 0.0;
+        }
         self.breathe_cfg.pulse = !self.breathe_cfg.pulse;
         if !self.breathe {
             self.breathe_origin = Instant::now();
@@ -572,6 +665,7 @@ impl GradientStudioState {
     }
 
     pub fn toggle_breathe_shimmer(&mut self) {
+        self.bake_live_color_stops();
         self.breathe_cfg.shimmer = !self.breathe_cfg.shimmer;
         if !self.breathe {
             self.breathe_origin = Instant::now();
@@ -581,6 +675,7 @@ impl GradientStudioState {
     }
 
     pub fn toggle_breathe_auto_morph(&mut self) {
+        self.bake_live_color_stops();
         self.breathe_cfg.auto_morph = !self.breathe_cfg.auto_morph;
         if !self.breathe {
             self.breathe_origin = Instant::now();
@@ -616,8 +711,7 @@ impl GradientStudioState {
         self.push_history();
         self.stops.rotate_left(1);
         self.enabled = true;
-        self.breathe_paused_delta = None;
-        self.breathe_origin = Instant::now();
+        self.reset_color_phase();
         self.mark_visual_changed();
     }
 
@@ -666,18 +760,21 @@ impl GradientStudioState {
             return base;
         }
         [
-            (base[0].0 + 0.08 * t.sin(), base[0].1 + 0.06 * (t * 0.8).cos()),
             (
-                base[1].0 + 0.07 * (t * 0.9 + 1.4).cos(),
-                base[1].1 + 0.08 * (t * 0.7 + 0.6).sin(),
+                base[0].0 + 0.08 * t.sin(),
+                base[0].1 + 0.06 * (2.0 * t).sin(),
             ),
             (
-                base[2].0 + 0.08 * (t * 0.75 + 2.5).sin(),
-                base[2].1 + 0.06 * (t * 1.05 + 1.1).cos(),
+                base[1].0 - 0.07 * (2.0 * t).sin(),
+                base[1].1 + 0.08 * t.sin(),
             ),
             (
-                base[3].0 + 0.07 * (t * 0.85 + 3.8).cos(),
-                base[3].1 + 0.07 * (t * 0.95 + 2.2).sin(),
+                base[2].0 + 0.08 * (2.0 * t).sin(),
+                base[2].1 - 0.06 * t.sin(),
+            ),
+            (
+                base[3].0 - 0.07 * t.sin(),
+                base[3].1 - 0.07 * (2.0 * t).sin(),
             ),
         ]
     }

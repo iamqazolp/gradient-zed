@@ -67,6 +67,7 @@ pub fn sync_chrome_state(cx: &mut App) {
         breathe: state.breathe,
         breathe_origin: state.breathe_origin,
         breathe_paused_delta: state.breathe_paused_delta,
+        breathe_color_offset: state.breathe_color_offset,
         breathe_cycle_secs: cycle_secs,
         breathe_pulse: state.breathe_cfg.pulse,
         breathe_shimmer: state.breathe_cfg.shimmer,

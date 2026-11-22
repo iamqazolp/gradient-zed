@@ -87,4 +87,108 @@ mod tests {
         assert!(state.previous_palette());
         assert_eq!(state.stops, original);
     }
+
+    #[test]
+    fn sample_morph_ring_starts_at_selected_palette_not_classic() {
+        let ring = GradientStudioState::morph_ring();
+        let sakura = CURATED_PALETTES[2].stops;
+        assert_ne!(sakura, DEFAULT_STOPS);
+        assert_eq!(ui::gradient_chrome::sample_morph_ring(sakura, &ring, 0.0), sakura);
+
+        let custom = [[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120]];
+        assert_eq!(ui::gradient_chrome::sample_morph_ring(custom, &ring, 0.0), custom);
+    }
+
+    #[test]
+    fn breathe_toggle_round_trip_preserves_colors_and_focal_points() {
+        use std::f32::consts::TAU;
+        use std::time::{Duration, Instant};
+
+        let mut state = GradientStudioState::default();
+        let sakura = CURATED_PALETTES[2].stops;
+        state.select_palette("Sakura", sakura);
+        state.breathe_cfg.auto_morph = true;
+        state.breathe_cfg.shimmer = true;
+        state.breathe_cfg.full_wave = true;
+        state.breathe_cfg.pulse = true;
+
+        // Turning Breathe ON must begin seamlessly at Sakura, NOT jump to Gradient Classic.
+        state.toggle_breathe();
+        let d_start = state.current_breathe_delta().unwrap();
+        let start_stops = state.evaluate_stops_at(state.stops, Some(state.color_delta_for(d_start)));
+        for c in 0..4 {
+            for ch in 0..3 {
+                assert!(
+                    (start_stops[c][ch] as i16 - sakura[c][ch] as i16).abs() <= 2,
+                    "unexpected color jump when enabling Breathe: {start_stops:?} vs {sakura:?}"
+                );
+            }
+        }
+        let base_focal = state.focal_points_at(None);
+        let start_focal = state.focal_points_at(Some(d_start * TAU));
+        for i in 0..4 {
+            assert!((start_focal[i].0 - base_focal[i].0).abs() < 0.005);
+            assert!((start_focal[i].1 - base_focal[i].1).abs() < 0.005);
+        }
+
+        // Advance time 6s so Auto-Morph + Shimmer have moved far away from Sakura / Classic.
+        state.breathe_origin = Instant::now() - Duration::from_secs(6);
+        let d_mid = state.current_breathe_delta().unwrap();
+        let c_mid = state.color_delta_for(d_mid);
+        let mid_stops = state.evaluate_stops_at(state.stops, Some(c_mid));
+        assert_ne!(mid_stops, DEFAULT_STOPS);
+        assert_ne!(mid_stops, sakura);
+
+        // Turning Breathe OFF preserves exact frozen phase and stops.
+        state.toggle_breathe();
+        let d_paused = state.current_breathe_delta().unwrap();
+        assert!((d_paused - d_mid).abs() < 0.01);
+        let paused_stops =
+            state.evaluate_stops_at(state.stops, Some(state.color_delta_for(d_paused)));
+        assert_eq!(paused_stops, mid_stops);
+
+        // Turning Breathe back ON resumes continuously from paused position.
+        state.toggle_breathe();
+        let d_resumed = state.current_breathe_delta().unwrap();
+        assert!((d_resumed - d_paused).abs() < 0.01);
+    }
+
+    #[test]
+    fn toggling_shimmer_and_auto_morph_bakes_live_colors_without_motion_jump() {
+        use std::time::{Duration, Instant};
+
+        let mut state = GradientStudioState::default();
+        state.breathe = true;
+        state.breathe_cfg.auto_morph = true;
+        state.breathe_cfg.shimmer = true;
+        state.breathe_cfg.full_wave = true;
+        state.breathe_cfg.pulse = true;
+        state.breathe_origin = Instant::now() - Duration::from_secs(7);
+
+        let motion_before = state.current_breathe_delta().unwrap();
+        let stops_before =
+            state.evaluate_stops_at(state.stops, Some(state.color_delta_for(motion_before)));
+        assert_ne!(stops_before, DEFAULT_STOPS);
+
+        // Turning Auto-Morph OFF keeps visible colors instead of snapping to Gradient Classic,
+        // and keeps Full Wave / Pulse motion_delta continuous.
+        state.toggle_breathe_auto_morph();
+        let motion_after_morph = state.current_breathe_delta().unwrap();
+        let stops_after_morph = state.evaluate_stops_at(
+            state.stops,
+            Some(state.color_delta_for(motion_after_morph)),
+        );
+        assert_eq!(stops_after_morph, stops_before);
+        assert!((motion_after_morph - motion_before).abs() < 0.01);
+
+        // Turning Shimmer OFF likewise preserves visible colors and motion phase.
+        state.toggle_breathe_shimmer();
+        let motion_after_shimmer = state.current_breathe_delta().unwrap();
+        let stops_after_shimmer = state.evaluate_stops_at(
+            state.stops,
+            Some(state.color_delta_for(motion_after_shimmer)),
+        );
+        assert_eq!(stops_after_shimmer, stops_before);
+        assert!((motion_after_shimmer - motion_before).abs() < 0.01);
+    }
 }

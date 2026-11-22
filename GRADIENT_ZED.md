@@ -8,10 +8,10 @@
   - Adds `gpui::radial_gradient(...)` (`BackgroundTag::RadialGradient = 4`) with zero `Background` struct ABI change and built-in triangular dithering to eliminate 8-bit banding.
   - Blends softly over **any** Zed theme (One Dark, Catppuccin, Gruvbox, Tokyo Night, or the 12 built-in Gradient themes).
 - **Gradient Studio Crate (`crates/gradient_studio/`)**:
-  - **30 curated 4-color palettes** (`Gradient Classic`, `Borealis`, `Sakura`, `Matcha Yuzu`, `Iris Dusk`, `Glacier`, `Pure Blue`, etc.) + procedural harmonious randomizer.
-  - **Status Bar Controls**: **`↻`** quick-roll button (right-click to toggle overlay) + **`Studio ▴`** live popover menu.
-  - **Breathe Mode**: smooth Lissajous focal-point drift at native frame rate (automatically pauses when the window loses focus).
-  - **Seamless / Per-Panel Modes**: one continuous aurora wash across the whole window, or toggle **Editor**, **Left**, **Right**, **Bottom**, and **Bars** independently.
+  - **30 curated 4-color palettes** (`Gradient Classic`, `Borealis`, `Sakura`, `Matcha Yuzu`, `Iris Dusk`, `Glacier`, `Pure Blue`, etc.), inline 4-stop HSL color tuner, hex mix importer, and procedural harmonious randomizer.
+  - **Status Bar Controls**: **`↻`** quick-roll pill (right-click to toggle overlay), **`Breathe`** toggle pill, and **`Studio ▴`** live popover menu.
+  - **Synced Breathing Aurora (24 FPS)**: toggleable **Full Wave**, **Pulse**, **Shimmer**, and **Auto-Morph** modes that smoothly animate the backdrop, chatbox frame, gradient borders, scrollbars, cursors, and text selections in lockstep with zero color jumps.
+  - **Seamless / Per-Panel Modes**: one continuous aurora wash across the whole window, or toggle **Editor**, **Explorer**, **Chat**, **Terminal**, and **Bars** independently.
   - **Intensity (`20%–300%`)**, **Favorites**, **Swap Corners**, **Undo history**, persisted to `~/.config/zed/gradient_studio.json`.
 - **12 Built-in Gradient Themes** (`assets/themes/gradient/gradient.json`):
   - `Gradient — Light`, `Gradient — Dark`
