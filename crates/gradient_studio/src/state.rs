@@ -19,15 +19,17 @@ pub enum PanelRegion {
     RightDock,
     BottomDock,
     Bars,
+    Borders,
 }
 
 impl PanelRegion {
-    pub const ALL: [PanelRegion; 5] = [
+    pub const ALL: [PanelRegion; 6] = [
         PanelRegion::Editor,
         PanelRegion::LeftDock,
         PanelRegion::RightDock,
         PanelRegion::BottomDock,
         PanelRegion::Bars,
+        PanelRegion::Borders,
     ];
 
     pub fn label(self) -> &'static str {
@@ -37,6 +39,7 @@ impl PanelRegion {
             PanelRegion::RightDock => "Chat",
             PanelRegion::BottomDock => "Terminal",
             PanelRegion::Bars => "Bars",
+            PanelRegion::Borders => "Borders",
         }
     }
 }
@@ -49,6 +52,7 @@ pub struct PanelMask {
     pub right_dock: bool,
     pub bottom_dock: bool,
     pub bars: bool,
+    pub borders: bool,
 }
 
 impl Default for PanelMask {
@@ -59,6 +63,7 @@ impl Default for PanelMask {
             right_dock: true,
             bottom_dock: true,
             bars: true,
+            borders: true,
         }
     }
 }
@@ -71,6 +76,7 @@ impl PanelMask {
             PanelRegion::RightDock => self.right_dock,
             PanelRegion::BottomDock => self.bottom_dock,
             PanelRegion::Bars => self.bars,
+            PanelRegion::Borders => self.borders,
         }
     }
 
@@ -81,6 +87,7 @@ impl PanelMask {
             PanelRegion::RightDock => self.right_dock = !self.right_dock,
             PanelRegion::BottomDock => self.bottom_dock = !self.bottom_dock,
             PanelRegion::Bars => self.bars = !self.bars,
+            PanelRegion::Borders => self.borders = !self.borders,
         }
     }
 }
@@ -93,6 +100,7 @@ pub struct ComponentPalettes {
     pub right_dock: Option<CustomPalette>,
     pub bottom_dock: Option<CustomPalette>,
     pub bars: Option<CustomPalette>,
+    pub borders: Option<CustomPalette>,
 }
 
 impl ComponentPalettes {
@@ -103,6 +111,7 @@ impl ComponentPalettes {
             PanelRegion::RightDock => self.right_dock.as_ref(),
             PanelRegion::BottomDock => self.bottom_dock.as_ref(),
             PanelRegion::Bars => self.bars.as_ref(),
+            PanelRegion::Borders => self.borders.as_ref(),
         }
     }
 
@@ -113,6 +122,7 @@ impl ComponentPalettes {
             PanelRegion::RightDock => self.right_dock = value,
             PanelRegion::BottomDock => self.bottom_dock = value,
             PanelRegion::Bars => self.bars = value,
+            PanelRegion::Borders => self.borders = value,
         }
     }
 }
@@ -705,6 +715,10 @@ impl GradientStudioState {
     pub fn toggle_panel(&mut self, region: PanelRegion) {
         self.panels.toggle(region);
         self.mark_visual_changed();
+    }
+
+    pub fn toggle_borders(&mut self) {
+        self.toggle_panel(PanelRegion::Borders);
     }
 
     pub fn swap_corners(&mut self) {

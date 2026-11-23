@@ -32,6 +32,8 @@ actions!(
         ToggleBreathe,
         /// Switches between Seamless full-window wash and Per-Panel mode.
         ToggleSeamless,
+        /// Shows or hides the gradient panel border lines.
+        ToggleBorders,
         /// Rotates the 4 corner colors of the active gradient palette.
         SwapCorners,
         /// Increases the gradient overlay intensity.
@@ -190,6 +192,27 @@ mod tests {
         );
         assert_eq!(stops_after_shimmer, stops_before);
         assert!((motion_after_shimmer - motion_before).abs() < 0.01);
+    }
+
+    #[test]
+    fn borders_panel_region_toggles_and_custom_palette() {
+        let mut state = GradientStudioState::default();
+        assert!(PanelRegion::ALL.contains(&PanelRegion::Borders));
+        assert!(state.panels.is_enabled(PanelRegion::Borders));
+        assert!(state.panels.borders);
+
+        state.toggle_borders();
+        assert!(!state.panels.is_enabled(PanelRegion::Borders));
+        assert!(!state.panels.borders);
+
+        state.toggle_panel(PanelRegion::Borders);
+        assert!(state.panels.is_enabled(PanelRegion::Borders));
+
+        let custom = [[10, 20, 30], [40, 50, 60], [70, 80, 90], [100, 110, 120]];
+        state.select_palette_for(Some(PanelRegion::Borders), "Subtle", custom);
+        assert_eq!(state.resolved_stops(Some(PanelRegion::Borders)), custom);
+        state.clear_component_palette(PanelRegion::Borders);
+        assert_eq!(state.resolved_stops(Some(PanelRegion::Borders)), state.stops);
     }
 
     #[test]

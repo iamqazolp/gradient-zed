@@ -10067,7 +10067,14 @@ impl Render for Workspace {
                             window,
                             cx,
                         ))
-                        .child(item),
+                        .child(item)
+                        .children(gradient_studio::render_gradient_edge(
+                            Some(gradient_studio::PanelRegion::Bars),
+                            gradient_studio::GradientEdge::Bottom,
+                            1.5,
+                            0.62,
+                            cx,
+                        )),
                 )
             })
             .on_modifiers_changed(move |_, _, cx| {
@@ -10095,20 +10102,6 @@ impl Render for Workspace {
                             .when(!gradient_studio::is_enabled(cx), |this| {
                                 this.border_t_1().border_b_1().border_color(colors.border)
                             })
-                            .children(gradient_studio::render_gradient_edge(
-                                Some(gradient_studio::PanelRegion::Bars),
-                                gradient_studio::GradientEdge::Top,
-                                1.5,
-                                0.62,
-                                cx,
-                            ))
-                            .children(gradient_studio::render_gradient_edge(
-                                Some(gradient_studio::PanelRegion::Bars),
-                                gradient_studio::GradientEdge::Bottom,
-                                1.5,
-                                0.62,
-                                cx,
-                            ))
                             .child({
                                 let this = cx.entity();
                                 canvas(
@@ -10514,7 +10507,14 @@ impl Render for Workspace {
                                     window,
                                     cx,
                                 ))
-                                .child(self.status_bar.clone()),
+                                .child(self.status_bar.clone())
+                                .children(gradient_studio::render_gradient_edge(
+                                    Some(gradient_studio::PanelRegion::Bars),
+                                    gradient_studio::GradientEdge::Top,
+                                    1.5,
+                                    0.62,
+                                    cx,
+                                )),
                         )
                     })
                     .child(self.toast_layer.clone()),

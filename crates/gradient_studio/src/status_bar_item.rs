@@ -209,7 +209,7 @@ impl RenderOnce for StudioPillTrigger {
             .cursor(self.cursor_style)
             .gap_1()
             .px_2()
-            .py(px(1.5))
+            .h(ButtonSize::Default.rems())
             .rounded_full()
             .children(studio_frame)
             .when(!has_studio_frame, |this| {
@@ -324,13 +324,14 @@ impl Render for GradientStudioButton {
             .flatten();
 
         // 1. Roll button + mini 4-stop rainbow pill bar (matches VS Code status bar!)
-        let roll_btn = div()
+        let roll_btn = h_flex()
             .id("gradient-roll-btn")
             .relative()
             .group("gradient-roll-btn")
             .cursor_pointer()
             .px_1p5()
-            .py(px(2.))
+            .h(ButtonSize::Default.rems())
+            .items_center()
             .rounded_full()
             .when(!enabled, |this| {
                 this.hover(|s| s.bg(cx.theme().colors().element_hover))
@@ -402,12 +403,13 @@ impl Render for GradientStudioButton {
         let has_breathe_frame = breathe_frame.is_some();
 
         // 2. Dedicated Breathe pill in status bar (matches VS Code status bar!)
-        let breathe_btn = div()
+        let breathe_btn = h_flex()
             .id("gradient-status-breathe")
             .relative()
             .cursor_pointer()
             .px_2()
-            .py(px(1.))
+            .h(ButtonSize::Default.rems())
+            .items_center()
             .rounded_full()
             .children(breathe_frame)
             .when(!has_breathe_frame, |this| {
@@ -1450,7 +1452,7 @@ impl Render for GradientStudioPopover {
                                             ),
                                     ),
                             )
-                            // 4. COMPONENT SCOPE PILLS: All | Editor | Explorer | Chat | Terminal | Bars
+                            // 4. COMPONENT SCOPE PILLS: All | Editor | Explorer | Chat | Terminal | Bars | Borders
                             .child(
                                 h_flex()
                                     .gap_1()
@@ -1464,7 +1466,7 @@ impl Render for GradientStudioPopover {
                                         div()
                                             .id("scope-all")
                                             .cursor_pointer()
-                                            .px_2()
+                                            .px_1p5()
                                             .py(px(3.))
                                             .rounded_full()
                                             .border_1()
@@ -1506,7 +1508,7 @@ impl Render for GradientStudioPopover {
                                                 region.label()
                                             )))
                                             .cursor_pointer()
-                                            .px_2()
+                                            .px_1p5()
                                             .py(px(3.))
                                             .rounded_full()
                                             .border_1()

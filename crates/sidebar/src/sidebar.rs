@@ -7415,7 +7415,13 @@ impl Sidebar {
                     right_window_controls,
                     no_open_projects,
                 ),
-                Decorations::Server => header.mt_px().pb_px(),
+                Decorations::Server => {
+                    if gradient_on {
+                        header
+                    } else {
+                        header.mt_px().pb_px()
+                    }
+                }
             })
             .when(left_window_controls, |this| {
                 this.children(Self::render_left_window_controls(window, cx))
@@ -7554,7 +7560,7 @@ impl Sidebar {
 
         h_flex()
             .relative()
-            .p_1()
+            .p(DynamicSpacing::Base04.rems(cx))
             .gap_1()
             .when(on_right, |this| this.flex_row_reverse())
             .when(!gradient_on, |this| {

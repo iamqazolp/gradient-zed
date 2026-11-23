@@ -11,6 +11,7 @@ const GLASS_THEME_SUFFIX: &str = "#gradient-glass";
 struct GradientThemeGlass {
     raw_theme: Option<Arc<Theme>>,
     canvas_bg: Hsla,
+    applied_borders: Option<bool>,
 }
 
 impl Global for GradientThemeGlass {}
@@ -100,6 +101,7 @@ pub fn init(cx: &mut App) {
     cx.set_global(GradientThemeGlass {
         raw_theme: None,
         canvas_bg: initial_canvas,
+        applied_borders: None,
     });
 
     sync_theme_glass(cx);
@@ -124,7 +126,10 @@ pub fn sync_theme_glass(cx: &mut App) {
         return;
     }
 
-    let enabled = cx.global::<GradientStudioState>().enabled;
+    let (enabled, show_borders) = {
+        let state = cx.global::<GradientStudioState>();
+        (state.enabled, state.panels.borders)
+    };
     let current = GlobalTheme::theme(cx).clone();
     let is_currently_glass = current.id.ends_with(GLASS_THEME_SUFFIX);
 
@@ -134,11 +139,13 @@ pub fn sync_theme_glass(cx: &mut App) {
         cx.update_global::<GradientThemeGlass, _>(|glass, _| {
             glass.raw_theme = Some(raw_theme);
             glass.canvas_bg = canvas_bg;
+            glass.applied_borders = None;
         });
     }
 
     if enabled {
-        if is_currently_glass {
+        let applied_borders = cx.global::<GradientThemeGlass>().applied_borders;
+        if is_currently_glass && applied_borders == Some(show_borders) {
             sync_chrome_state(cx);
             return;
         }
@@ -147,12 +154,18 @@ pub fn sync_theme_glass(cx: &mut App) {
             return;
         };
         let canvas_bg = cx.global::<GradientThemeGlass>().canvas_bg;
-        let glass_theme = build_glass_theme(&raw, canvas_bg);
+        let glass_theme = build_glass_theme(&raw, canvas_bg, show_borders);
+        cx.update_global::<GradientThemeGlass, _>(|glass, _| {
+            glass.applied_borders = Some(show_borders);
+        });
         GlobalTheme::update_theme(cx, Arc::new(glass_theme));
         sync_chrome_state(cx);
         cx.refresh_windows();
     } else if is_currently_glass {
         if let Some(raw) = cx.global::<GradientThemeGlass>().raw_theme.clone() {
+            cx.update_global::<GradientThemeGlass, _>(|glass, _| {
+                glass.applied_borders = None;
+            });
             GlobalTheme::update_theme(cx, raw);
             sync_chrome_state(cx);
             cx.refresh_windows();
@@ -162,7 +175,7 @@ pub fn sync_theme_glass(cx: &mut App) {
     }
 }
 
-fn build_glass_theme(raw: &Theme, canvas_bg: Hsla) -> Theme {
+fn build_glass_theme(raw: &Theme, canvas_bg: Hsla, show_borders: bool) -> Theme {
     let mut glass = raw.clone();
     glass.id = format!("{}{}", raw.id, GLASS_THEME_SUFFIX);
 
@@ -194,14 +207,22 @@ fn build_glass_theme(raw: &Theme, canvas_bg: Hsla) -> Theme {
     if is_light {
         c.border = gpui::rgba(0x0f172a1c).into();
         c.border_variant = gpui::rgba(0x0f172a12).into();
-        c.pane_group_border = gpui::rgba(0x0f172a1c).into();
+        c.pane_group_border = if show_borders {
+            gpui::rgba(0x0f172a1c).into()
+        } else {
+            transparent_black()
+        };
         c.ghost_element_hover = gpui::rgba(0xffffff58).into();
         c.ghost_element_active = gpui::rgba(0xffffff80).into();
         c.ghost_element_selected = gpui::rgba(0xffffff8c).into();
     } else {
         c.border = gpui::rgba(0xffffff1f).into();
         c.border_variant = gpui::rgba(0xffffff14).into();
-        c.pane_group_border = gpui::rgba(0xffffff1f).into();
+        c.pane_group_border = if show_borders {
+            gpui::rgba(0xffffff1f).into()
+        } else {
+            transparent_black()
+        };
         c.ghost_element_hover = gpui::rgba(0xffffff14).into();
         c.ghost_element_active = gpui::rgba(0xffffff22).into();
         c.ghost_element_selected = gpui::rgba(0xffffff1c).into();

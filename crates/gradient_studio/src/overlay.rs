@@ -113,7 +113,7 @@ pub fn render_aurora_overlay(
                     PanelRegion::Editor => AuroraShape::FullMesh,
                     PanelRegion::LeftDock | PanelRegion::RightDock => AuroraShape::Sidebar,
                     PanelRegion::BottomDock => AuroraShape::Terminal,
-                    PanelRegion::Bars => AuroraShape::HorizontalBar,
+                    PanelRegion::Bars | PanelRegion::Borders => AuroraShape::HorizontalBar,
                 };
                 (Some(canvas_bg), split_shape)
             }
@@ -189,11 +189,15 @@ pub fn render_gradient_edge(
     cx: &App,
 ) -> Option<AnyElement> {
     let state = cx.try_global::<GradientStudioState>()?;
-    if !state.enabled {
+    if !state.enabled || !state.panels.borders {
         return None;
     }
-    let custom_override =
-        region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
+    let custom_override = state
+        .component_palettes
+        .borders
+        .as_ref()
+        .map(|p| p.stops)
+        .or_else(|| region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops)));
     let horizontal = matches!(edge, GradientEdge::Top | GradientEdge::Bottom);
     let edge_canvas =
         ui::gradient_chrome::render_gradient_edge_canvas(custom_override, horizontal, alpha, cx)?;
@@ -217,11 +221,15 @@ pub fn render_gradient_divider(
     cx: &App,
 ) -> Option<AnyElement> {
     let state = cx.try_global::<GradientStudioState>()?;
-    if !state.enabled {
+    if !state.enabled || !state.panels.borders {
         return None;
     }
-    let custom_override =
-        region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops));
+    let custom_override = state
+        .component_palettes
+        .borders
+        .as_ref()
+        .map(|p| p.stops)
+        .or_else(|| region.and_then(|panel| state.component_palettes.get(panel).map(|p| p.stops)));
     let edge_canvas =
         ui::gradient_chrome::render_gradient_edge_canvas(custom_override, horizontal, alpha, cx)?;
     let mut strip = div().relative().flex_shrink_0().overflow_hidden();

@@ -672,6 +672,9 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
             .register_action(|_, _: &gradient_studio::ToggleSeamless, _, cx| {
                 gradient_studio::update_state(cx, |state| state.toggle_seamless());
             })
+            .register_action(|_, _: &gradient_studio::ToggleBorders, _, cx| {
+                gradient_studio::update_state(cx, |state| state.toggle_borders());
+            })
             .register_action(|_, _: &gradient_studio::SwapCorners, _, cx| {
                 gradient_studio::update_state(cx, |state| state.swap_corners());
             })
