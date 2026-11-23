@@ -1,4 +1,5 @@
 use std::f32::consts::TAU;
+use std::sync::Arc;
 use std::time::Instant;
 
 use gpui::{
@@ -7,6 +8,8 @@ use gpui::{
     quad, size, transparent_black,
 };
 use theme::{ActiveTheme as _, Appearance};
+
+pub const GLASS_THEME_SUFFIX: &str = "#gradient-glass";
 
 pub type Rgb = [u8; 3];
 pub type FourStops = [Rgb; 4];
@@ -37,6 +40,7 @@ pub struct GradientChromeState {
     pub canvas_bg: Hsla,
     pub is_light: bool,
     pub morph_palettes: Vec<FourStops>,
+    pub raw_theme: Option<Arc<theme::Theme>>,
 }
 
 impl Global for GradientChromeState {}
@@ -58,6 +62,7 @@ impl Default for GradientChromeState {
             canvas_bg: gpui::rgb(0x111722).into(),
             is_light: false,
             morph_palettes: Vec::new(),
+            raw_theme: None,
         }
     }
 }
@@ -221,6 +226,38 @@ pub fn canvas_background(cx: &App) -> Hsla {
         c.a = 1.0;
         c
     }
+}
+
+/// Returns the unmodified pre-glass theme colors when Gradient Zed's glass theme is active,
+/// falling back to `cx.theme().colors()` otherwise.
+///
+/// Rasterized SVG diagrams (such as Mermaid) blend node fills over `editor_background` and draw
+/// edges with `border`; reading glass-transparent structural backgrounds (`transparent_black()`)
+/// or translucent glass borders turns light-mode diagram nodes near-black and fades out arrows.
+pub fn raw_theme_colors<'a>(cx: &'a App) -> &'a theme::ThemeColors {
+    if cx.theme().id.ends_with(GLASS_THEME_SUFFIX)
+        && let Some(state) = cx.try_global::<GradientChromeState>()
+        && state.enabled
+        && let Some(raw) = &state.raw_theme
+    {
+        return raw.colors();
+    }
+    cx.theme().colors()
+}
+
+/// Computes a crisp opaque connector/arrow stroke color for Mermaid diagrams rendered over
+/// Gradient Zed's frosted aurora cards by strengthening the theme's raw border toward `text_muted`.
+pub fn mermaid_line_color(border: Hsla, text_muted: Hsla) -> Hsla {
+    let b = gpui::Rgba::from(border);
+    let m = gpui::Rgba::from(text_muted);
+    let t = 0.45;
+    gpui::Rgba {
+        r: b.r * (1.0 - t) + m.r * t,
+        g: b.g * (1.0 - t) + m.g * t,
+        b: b.b * (1.0 - t) + m.b * t,
+        a: 1.0,
+    }
+    .into()
 }
 
 /// Solid opaque background color for fenced code blocks inside Markdown / Agent responses,

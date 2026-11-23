@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use gpui::{App, BorrowAppContext as _, Global, Hsla, transparent_black};
 use theme::{ActiveTheme as _, Appearance, GlobalTheme, Theme};
+use ui::gradient_chrome::GLASS_THEME_SUFFIX;
 
 use crate::palettes::CURATED_PALETTES;
 use crate::state::GradientStudioState;
-
-const GLASS_THEME_SUFFIX: &str = "#gradient-glass";
 
 struct GradientThemeGlass {
     raw_theme: Option<Arc<Theme>>,
@@ -61,6 +60,9 @@ pub fn sync_chrome_state(cx: &mut App) {
         .take(12)
         .map(|p| p.stops)
         .collect();
+    let raw_theme = cx
+        .try_global::<GradientThemeGlass>()
+        .and_then(|glass| glass.raw_theme.clone());
 
     let next = ui::gradient_chrome::GradientChromeState {
         enabled: state.enabled,
@@ -77,6 +79,7 @@ pub fn sync_chrome_state(cx: &mut App) {
         canvas_bg,
         is_light,
         morph_palettes,
+        raw_theme,
     };
 
     if cx.has_global::<ui::gradient_chrome::GradientChromeState>() {
@@ -158,16 +161,16 @@ pub fn sync_theme_glass(cx: &mut App) {
         cx.update_global::<GradientThemeGlass, _>(|glass, _| {
             glass.applied_borders = Some(show_borders);
         });
-        GlobalTheme::update_theme(cx, Arc::new(glass_theme));
         sync_chrome_state(cx);
+        GlobalTheme::update_theme(cx, Arc::new(glass_theme));
         cx.refresh_windows();
     } else if is_currently_glass {
         if let Some(raw) = cx.global::<GradientThemeGlass>().raw_theme.clone() {
             cx.update_global::<GradientThemeGlass, _>(|glass, _| {
                 glass.applied_borders = None;
             });
-            GlobalTheme::update_theme(cx, raw);
             sync_chrome_state(cx);
+            GlobalTheme::update_theme(cx, raw);
             cx.refresh_windows();
         }
     } else {

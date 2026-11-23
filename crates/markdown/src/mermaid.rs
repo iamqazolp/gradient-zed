@@ -366,9 +366,26 @@ fn mermaid_font_family(font_family: &str) -> String {
 }
 
 fn build_mermaid_theme(cx: &Context<Markdown>) -> mermaid_render::MermaidTheme {
-    let colors = cx.theme().colors();
+    let gradient_on = ui::gradient_chrome::is_enabled(cx);
+    let colors = ui::gradient_chrome::raw_theme_colors(cx);
     let theme_settings = ThemeSettings::get_global(cx);
     let is_dark = !cx.theme().appearance.is_light();
+
+    let background = if colors.editor_background.a >= 0.999 {
+        colors.editor_background
+    } else {
+        ui::gradient_chrome::canvas_background(cx)
+    };
+    let line_color = if gradient_on {
+        ui::gradient_chrome::mermaid_line_color(colors.border, colors.text_muted)
+    } else {
+        colors.border
+    };
+    let edge_label_background = if gradient_on {
+        background.opacity(0.88)
+    } else {
+        colors.editor_background
+    };
 
     let players = cx.theme().players();
     let git_branch_colors = std::array::from_fn(|i| players.0[i % players.0.len()].cursor);
@@ -377,15 +394,15 @@ fn build_mermaid_theme(cx: &Context<Markdown>) -> mermaid_render::MermaidTheme {
     mermaid_render::MermaidTheme {
         dark_mode: is_dark,
         font_family: mermaid_font_family(theme_settings.mermaid_font_family().as_ref()),
-        background: colors.editor_background,
+        background,
         primary_color: colors.surface_background,
         primary_text_color: colors.text,
         primary_border_color: colors.border,
         secondary_color: colors.element_background,
         tertiary_color: colors.ghost_element_hover,
-        line_color: colors.border,
+        line_color,
         text_color: colors.text,
-        edge_label_background: colors.editor_background,
+        edge_label_background,
         cluster_background: colors.panel_background,
         cluster_border: colors.border_variant,
         note_background: colors.surface_background,

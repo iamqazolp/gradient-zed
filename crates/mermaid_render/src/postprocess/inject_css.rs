@@ -114,6 +114,7 @@ fn mindmap_section_css(theme: &MermaidTheme) -> String {
             c,
             theme.background,
             ACCENT_FILL_OPACITY,
+            theme.dark_mode,
         ))
     });
     let text = crate::css_color(theme.text_color);
@@ -161,6 +162,7 @@ fn git_branch_css(theme: &MermaidTheme) -> String {
             theme.git_branch_colors[i],
             theme.background,
             ACCENT_FILL_OPACITY,
+            theme.dark_mode,
         ));
         write!(
             css,
@@ -188,9 +190,34 @@ fn blend_over_background(
     foreground: gpui::Hsla,
     background: gpui::Hsla,
     opacity: f32,
+    dark_mode: bool,
 ) -> gpui::Hsla {
     let fg = gpui::Rgba::from(foreground);
-    let bg = gpui::Rgba::from(background);
+    let mut bg = gpui::Rgba::from(background);
+    if bg.a < 0.999 {
+        let fallback = if dark_mode {
+            gpui::Rgba {
+                r: 0x11 as f32 / 255.0,
+                g: 0x17 as f32 / 255.0,
+                b: 0x22 as f32 / 255.0,
+                a: 1.0,
+            }
+        } else {
+            gpui::Rgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            }
+        };
+        let a = bg.a.clamp(0.0, 1.0);
+        bg = gpui::Rgba {
+            r: bg.r * a + fallback.r * (1.0 - a),
+            g: bg.g * a + fallback.g * (1.0 - a),
+            b: bg.b * a + fallback.b * (1.0 - a),
+            a: 1.0,
+        };
+    }
     let blended = gpui::Rgba {
         r: fg.r * opacity + bg.r * (1.0 - opacity),
         g: fg.g * opacity + bg.g * (1.0 - opacity),
@@ -210,6 +237,7 @@ fn accent_css(theme: &MermaidTheme) -> String {
             accent.background,
             theme.background,
             ACCENT_FILL_OPACITY,
+            theme.dark_mode,
         ));
         let class = format!(".zed-accent-{i}");
         write!(
@@ -251,6 +279,7 @@ fn timeline_css(theme: &MermaidTheme) -> String {
             theme.git_branch_colors[i],
             theme.background,
             ACCENT_FILL_OPACITY,
+            theme.dark_mode,
         ));
         write!(
             css,
@@ -263,6 +292,7 @@ fn timeline_css(theme: &MermaidTheme) -> String {
             theme.git_branch_colors[i % 8],
             theme.background,
             ACCENT_FILL_OPACITY,
+            theme.dark_mode,
         ));
         write!(
             css,
@@ -506,5 +536,83 @@ mod tests {
         let input = "        .foo { color: red; }\n";
         let result = scope_css(input, "my-svg");
         assert!(result.contains("#my-svg .foo"), "got: {result}");
+    }
+
+    #[test]
+    fn transparent_background_blends_over_light_or_dark_base_not_black() {
+        let blue: gpui::Hsla = gpui::rgb(0x4285f4).into();
+        let light_fill = blend_over_background(blue, gpui::transparent_black(), ACCENT_FILL_OPACITY, false);
+        assert!(
+            light_fill.l > 0.80,
+            "light mode transparent background must produce light pastel fill, got l={}",
+            light_fill.l
+        );
+        assert!((light_fill.a - 1.0).abs() < 1e-4);
+
+        let dark_fill = blend_over_background(blue, gpui::transparent_black(), ACCENT_FILL_OPACITY, true);
+        assert!(
+            dark_fill.l < 0.30,
+            "dark mode transparent background must produce dark slate fill, got l={}",
+            dark_fill.l
+        );
+        assert!((dark_fill.a - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn flowchart_with_translucent_edge_label_and_light_accents_parses_in_usvg() {
+        let mut theme = MermaidTheme::default();
+        theme.dark_mode = false;
+        theme.background = gpui::rgb(0xfafafa).into();
+        theme.edge_label_background = theme.background.opacity(0.88);
+        theme.accent_colors = vec![
+            crate::AccentColor {
+                foreground: gpui::rgb(0x5c78e2).into(),
+                background: gpui::rgb(0x5c78e2).into(),
+            },
+            crate::AccentColor {
+                foreground: gpui::rgb(0xd36151).into(),
+                background: gpui::rgb(0xd36151).into(),
+            },
+        ];
+
+        let source = "flowchart LR\n  A[\"Individual Ad\"] -->|Level 1 Grouping| B[\"Pseudo-Ad-Set\"]";
+        let svg = crate::render_to_svg(source, &theme).expect("flowchart render failed");
+
+        let mut options = usvg::Options::default();
+        options.fontdb_mut().load_system_fonts();
+        let tree = usvg::Tree::from_str(&svg, &options).expect("SVG parsing failed");
+
+        // Verify node accent fills in the parsed usvg tree are light pastel fills, not dark/black.
+        let mut light_fills = 0usize;
+        let mut dark_fills = 0usize;
+        fn walk(group: &usvg::Group, light_fills: &mut usize, dark_fills: &mut usize) {
+            for node in group.children() {
+                match node {
+                    usvg::Node::Group(g) => walk(g, light_fills, dark_fills),
+                    usvg::Node::Path(p) => {
+                        if let Some(fill) = p.fill() {
+                            if let usvg::Paint::Color(c) = fill.paint() {
+                                if p.bounding_box().width() > 60.0 && p.bounding_box().height() > 20.0 {
+                                    let luma = 0.2126 * (c.red as f32 / 255.0)
+                                        + 0.7152 * (c.green as f32 / 255.0)
+                                        + 0.0722 * (c.blue as f32 / 255.0);
+                                    if luma > 0.70 {
+                                        *light_fills += 1;
+                                    } else if luma < 0.25 {
+                                        *dark_fills += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(tree.root(), &mut light_fills, &mut dark_fills);
+        assert!(
+            light_fills >= 2 && dark_fills == 0,
+            "expected light pastel node fills and zero dark node fills, got light={light_fills} dark={dark_fills}"
+        );
     }
 }

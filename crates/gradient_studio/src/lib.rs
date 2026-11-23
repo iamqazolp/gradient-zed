@@ -362,4 +362,125 @@ mod tests {
         })
         .unwrap();
     }
+
+    #[gpui::test]
+    fn glass_theme_preserves_opaque_raw_colors_for_mermaid_during_theme_notifications(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        use std::sync::Arc;
+        use theme::{ActiveTheme as _, Appearance, GlobalTheme, ThemeColors};
+
+        let mut light_colors = ThemeColors::light();
+        light_colors.editor_background = gpui::rgb(0xfafafa).into();
+        light_colors.panel_background = gpui::rgb(0xebebec).into();
+        light_colors.border = gpui::rgb(0xc9c9ca).into();
+        light_colors.border_variant = gpui::rgb(0xdfdfe0).into();
+        light_colors.text_muted = gpui::rgb(0x58585a).into();
+
+        let base_theme = theme::ThemeRegistry::new(Box::new(()))
+            .get(theme::DEFAULT_DARK_THEME)
+            .unwrap();
+
+        let mut raw_light_theme = (*base_theme).clone();
+        raw_light_theme.id = "one-light-test".to_string();
+        raw_light_theme.name = "One Light Test".into();
+        raw_light_theme.appearance = Appearance::Light;
+        raw_light_theme.styles.colors = light_colors;
+        let raw_light = Arc::new(raw_light_theme);
+
+        let mut dark_colors = ThemeColors::dark();
+        dark_colors.editor_background = gpui::rgb(0x282c33).into();
+        dark_colors.panel_background = gpui::rgb(0x2f343e).into();
+        dark_colors.border = gpui::rgb(0x464b57).into();
+        dark_colors.border_variant = gpui::rgb(0x363c46).into();
+        dark_colors.text_muted = gpui::rgb(0xa9afbc).into();
+
+        let mut raw_dark_theme = (*base_theme).clone();
+        raw_dark_theme.id = "one-dark-test".to_string();
+        raw_dark_theme.name = "One Dark Test".into();
+        raw_dark_theme.appearance = Appearance::Dark;
+        raw_dark_theme.styles.colors = dark_colors;
+        let raw_dark = Arc::new(raw_dark_theme);
+
+        let observed_editor_bg_alphas: Rc<RefCell<Vec<f32>>> = Rc::new(RefCell::new(Vec::new()));
+        let observed_border_alphas: Rc<RefCell<Vec<f32>>> = Rc::new(RefCell::new(Vec::new()));
+
+        cx.update(|cx| {
+            cx.set_global(GlobalTheme::new(
+                raw_light.clone(),
+                theme::default_icon_theme(),
+            ));
+            cx.set_global(GradientStudioState::default());
+            theme_glass::init(cx);
+
+            // Glass theme makes live `cx.theme().colors().editor_background` transparent,
+            // while `ui::gradient_chrome::raw_theme_colors(cx)` preserves opaque raw colors.
+            assert_eq!(cx.theme().colors().editor_background.a, 0.0);
+            let raw = ui::gradient_chrome::raw_theme_colors(cx);
+            assert_eq!(raw.editor_background.a, 1.0);
+            assert_eq!(raw.panel_background.a, 1.0);
+            assert_eq!(raw.border.a, 1.0);
+            assert_eq!(raw.border_variant.a, 1.0);
+            assert!(raw.editor_background.l > 0.90);
+
+            let line = ui::gradient_chrome::mermaid_line_color(raw.border, raw.text_muted);
+            assert_eq!(line.a, 1.0);
+            assert!(
+                line.l < raw.border.l && line.l > raw.text_muted.l,
+                "mermaid_line_color should fall between light border and text_muted, got l={}",
+                line.l
+            );
+
+            let bg_log = observed_editor_bg_alphas.clone();
+            let border_log = observed_border_alphas.clone();
+            cx.observe_global::<GlobalTheme>(move |cx| {
+                let raw = ui::gradient_chrome::raw_theme_colors(cx);
+                bg_log.borrow_mut().push(raw.editor_background.a);
+                border_log.borrow_mut().push(raw.border.a);
+            })
+            .detach();
+        });
+
+        // Toggle overlay OFF, then back ON, then switch Light -> Dark while ON:
+        // every GlobalTheme notification must expose opaque raw colors (never transparent_black()).
+        cx.update(|cx| {
+            state::update_state(cx, |s| s.enabled = false);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(cx.theme().colors().editor_background.a, 1.0);
+            state::update_state(cx, |s| s.enabled = true);
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(cx.theme().colors().editor_background.a, 0.0);
+            assert!(ui::gradient_chrome::raw_theme_colors(cx).editor_background.l > 0.90);
+            GlobalTheme::update_theme(cx, raw_dark.clone());
+        });
+        cx.run_until_parked();
+        cx.update(|cx| {
+            assert_eq!(cx.theme().colors().editor_background.a, 0.0);
+            let raw = ui::gradient_chrome::raw_theme_colors(cx);
+            assert_eq!(raw.editor_background.a, 1.0);
+            assert!(
+                raw.editor_background.l < 0.30,
+                "after switching to dark theme, raw editor_background must reflect dark theme, got l={}",
+                raw.editor_background.l
+            );
+        });
+
+        let bg_alphas = observed_editor_bg_alphas.borrow();
+        let border_alphas = observed_border_alphas.borrow();
+        assert!(bg_alphas.len() >= 4, "expected theme notifications on toggle and theme switch");
+        assert!(
+            bg_alphas.iter().all(|&a| a == 1.0),
+            "every GlobalTheme notification must expose opaque raw editor_background: {bg_alphas:?}"
+        );
+        assert!(
+            border_alphas.iter().all(|&a| a == 1.0),
+            "every GlobalTheme notification must expose opaque raw border: {border_alphas:?}"
+        );
+    }
 }
