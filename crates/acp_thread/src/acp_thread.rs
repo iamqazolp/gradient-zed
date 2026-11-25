@@ -1,3 +1,4 @@
+mod agynotice_bridge;
 pub mod auth_methods;
 pub mod commands;
 pub mod compaction;
@@ -4096,6 +4097,9 @@ impl AcpThread {
             });
 
         let receipt_submissions = connection.receipt_submissions(&session_id, cx);
+        if parent_session_id.is_none() {
+            agynotice_bridge::register_thread(session_id.0.to_string(), cx.weak_entity(), cx);
+        }
         Self {
             parent_session_id,
             session_info: AgentSessionInfo {
