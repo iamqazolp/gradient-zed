@@ -404,7 +404,8 @@ fn build_injected_css(theme: &MermaidTheme, svg_id: &str) -> String {
         r#"
         text, tspan, foreignObject div, foreignObject span, foreignObject p {{ font-family: {font} !important; }}
         foreignObject div, foreignObject span, foreignObject p {{ font-size: 16px; color: {text}; }}
-        .merman-foreignobject-fallback-text {{ font-size: 16px !important; }}
+        .merman-foreignobject-fallback {{ font-weight: normal !important; letter-spacing: 0 !important; word-spacing: 0 !important; }}
+        defs svg {{ overflow: visible !important; }}
         foreignObject p {{ margin: 0; }}
         foreignObject {{ overflow: visible; }}
         foreignObject div {{ max-width: none !important; }}
@@ -576,7 +577,9 @@ mod tests {
         ];
 
         let source = "flowchart LR\n  A[\"Individual Ad\"] -->|Level 1 Grouping| B[\"Pseudo-Ad-Set\"]";
-        let svg = crate::render_to_svg(source, &theme).expect("flowchart render failed");
+        let svg_renderer = gpui::SvgRenderer::new(std::sync::Arc::new(()));
+        let svg = crate::render_to_svg(source, &theme, &svg_renderer)
+            .expect("flowchart render failed");
 
         let mut options = usvg::Options::default();
         options.fontdb_mut().load_system_fonts();

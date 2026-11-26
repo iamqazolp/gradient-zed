@@ -80,21 +80,22 @@ jobs:
             else
               echo "Push failed (likely upstream changes in .github/workflows requiring local merge)."
               TITLE="Upstream sync for Zed ${LATEST_TAG} requires manual push"
-              if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
+              if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' 2>/dev/null | grep -q .; then
                 gh issue create \
                   --repo "${GH_REPO}" \
                   --title "${TITLE}" \
-                  --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` succeeded cleanly, but pushing \`${SYNC_BRANCH}\` was rejected (e.g. upstream modified \`.github/workflows/*\`, which requires a user push). Run \`git fetch upstream tag ${LATEST_TAG} && git merge ${LATEST_TAG} && git push origin gradient-zed\` locally."
+                  --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` succeeded cleanly, but pushing \`${SYNC_BRANCH}\` was rejected (e.g. upstream modified \`.github/workflows/*\`, which requires a user push). Run \`git fetch upstream tag ${LATEST_TAG} && git merge ${LATEST_TAG} && git push origin gradient-zed\` locally." || true
               fi
             fi
           else
             echo "Merge conflicts detected while syncing ${LATEST_TAG}."
             git merge --abort || true
             TITLE="Upstream sync conflict for Zed ${LATEST_TAG}"
-            if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' | grep -q .; then
+            if ! gh issue list --repo "${GH_REPO}" --state open --search "${TITLE} in:title" --json number --jq '.[0].number' 2>/dev/null | grep -q .; then
               gh issue create \
                 --repo "${GH_REPO}" \
                 --title "${TITLE}" \
-                --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` hit a merge conflict. Please rebase/merge locally and push."
+                --body "Automatic merge of \`zed-industries/zed\` \`${LATEST_TAG}\` into \`gradient-zed\` hit a merge conflict. Please rebase/merge locally and push." || true
             fi
+            exit 1
           fi

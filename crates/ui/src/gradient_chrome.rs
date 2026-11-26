@@ -348,7 +348,7 @@ pub fn paint_markdown_selection_quad(
 /// Paints a live-breathing gradient path for Editor text selections while keeping the enclosing
 /// `Pane`/`Editor` view cached across Breathe ticks.
 pub fn paint_selection_path(
-    path: Path<Pixels>,
+    path: Path,
     opacity_scale: f32,
     fallback: Hsla,
     window: &mut Window,
@@ -368,7 +368,7 @@ pub fn paint_selection_path(
 /// Paints a live-breathing gradient path for animated text cursors while keeping the enclosing
 /// `Pane`/`Editor` view cached across Breathe ticks.
 pub fn paint_cursor_path(
-    path: Path<Pixels>,
+    path: Path,
     is_underline: bool,
     fallback: Hsla,
     window: &mut Window,

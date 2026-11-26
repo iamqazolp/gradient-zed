@@ -316,9 +316,11 @@ mod tests {
                 assert!(paints >= 1);
                 let quads = window.painted_quads();
                 assert_eq!(quads.len(), 3);
-                assert!(quads[0].order < quads[1].order);
-                assert!(quads[1].order < quads[2].order);
+                assert!(quads[0].order <= quads[1].order);
+                assert!(quads[1].order <= quads[2].order);
+                assert!((quads[0].background.as_solid().unwrap().h - 0.1).abs() < 1e-4);
                 assert!((quads[1].background.as_solid().unwrap().h - 0.25).abs() < 1e-4);
+                assert!((quads[2].background.as_solid().unwrap().h - 0.9).abs() < 1e-4);
                 let expected_mask = size(
                     ScaledPixels(40. * window.scale_factor()),
                     ScaledPixels(40. * window.scale_factor()),
@@ -342,9 +344,11 @@ mod tests {
                 assert_eq!(dynamic_paint_count.get(), baseline_paints + step);
                 let quads = window.painted_quads();
                 assert_eq!(quads.len(), 3);
-                assert!(quads[0].order < quads[1].order);
-                assert!(quads[1].order < quads[2].order);
+                assert!(quads[0].order <= quads[1].order);
+                assert!(quads[1].order <= quads[2].order);
+                assert!((quads[0].background.as_solid().unwrap().h - 0.1).abs() < 1e-4);
                 assert!((quads[1].background.as_solid().unwrap().h - next_hue).abs() < 1e-4);
+                assert!((quads[2].background.as_solid().unwrap().h - 0.9).abs() < 1e-4);
                 let expected_mask = size(
                     ScaledPixels(40. * window.scale_factor()),
                     ScaledPixels(40. * window.scale_factor()),

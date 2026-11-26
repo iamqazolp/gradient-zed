@@ -457,61 +457,55 @@ impl StickyHeaders {
         };
 
         for line in self.lines.iter_mut().rev() {
-            window.paint_layer(
-                Bounds::new(
+            window.paint_layer(|window| {
+                let gutter_bounds = Bounds::new(
                     layout.gutter_hitbox.origin + point(Pixels::ZERO, line.offset),
-                    size(line.hitbox.size.width, line_height),
-                ),
-                |window| {
-                    let gutter_bounds = Bounds::new(
-                        layout.gutter_hitbox.origin + point(Pixels::ZERO, line.offset),
-                        size(layout.gutter_hitbox.size.width, line_height),
-                    );
-                    let text_bounds = Bounds::new(
-                        layout.position_map.text_hitbox.origin + point(Pixels::ZERO, line.offset),
-                        size(line.available_text_width, line_height),
-                    );
+                    size(layout.gutter_hitbox.size.width, line_height),
+                );
+                let text_bounds = Bounds::new(
+                    layout.position_map.text_hitbox.origin + point(Pixels::ZERO, line.offset),
+                    size(line.available_text_width, line_height),
+                );
 
-                    if !gradient_sticky_active {
-                        window.paint_quad(fill(gutter_bounds, self.gutter_background));
-                        window.paint_quad(fill(text_bounds, self.content_background));
+                if !gradient_sticky_active {
+                    window.paint_quad(fill(gutter_bounds, self.gutter_background));
+                    window.paint_quad(fill(text_bounds, self.content_background));
+                }
+
+                if line.hitbox.is_hovered(window) {
+                    if gradient_sticky_active {
+                        let row_bounds = Bounds::new(
+                            layout.gutter_hitbox.origin + point(px(4.0), line.offset + px(1.0)),
+                            size(
+                                (line.hitbox.size.width - px(8.0)).max(Pixels::ZERO),
+                                (line_height - px(2.0)).max(Pixels::ZERO),
+                            ),
+                        );
+                        ui::gradient_chrome::paint_gradient_hover_band(
+                            row_bounds,
+                            5.0,
+                            0.18,
+                            window,
+                            cx,
+                        );
+                    } else {
+                        let hover_overlay = cx.theme().colors().panel_overlay_hover;
+                        window.paint_quad(fill(gutter_bounds, hover_overlay));
+                        window.paint_quad(fill(text_bounds, hover_overlay));
                     }
+                }
 
-                    if line.hitbox.is_hovered(window) {
-                        if gradient_sticky_active {
-                            let row_bounds = Bounds::new(
-                                layout.gutter_hitbox.origin + point(px(4.0), line.offset + px(1.0)),
-                                size(
-                                    (line.hitbox.size.width - px(8.0)).max(Pixels::ZERO),
-                                    (line_height - px(2.0)).max(Pixels::ZERO),
-                                ),
-                            );
-                            ui::gradient_chrome::paint_gradient_hover_band(
-                                row_bounds,
-                                5.0,
-                                0.18,
-                                window,
-                                cx,
-                            );
-                        } else {
-                            let hover_overlay = cx.theme().colors().panel_overlay_hover;
-                            window.paint_quad(fill(gutter_bounds, hover_overlay));
-                            window.paint_quad(fill(text_bounds, hover_overlay));
-                        }
-                    }
-
-                    line.paint(
-                        layout,
-                        self.gutter_right_padding,
-                        line.available_text_width,
-                        layout.content_origin,
-                        line_height,
-                        whitespace_setting,
-                        window,
-                        cx,
-                    );
-                },
-            );
+                line.paint(
+                    layout,
+                    self.gutter_right_padding,
+                    line.available_text_width,
+                    layout.content_origin,
+                    line_height,
+                    whitespace_setting,
+                    window,
+                    cx,
+                );
+            });
 
             window.set_cursor_style(CursorStyle::IBeam, &line.hitbox);
         }
